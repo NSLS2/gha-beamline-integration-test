@@ -22,20 +22,17 @@ inputs:
 runs:
   using: 'composite'
 
-  defaults:
-    run:
-      shell: bash -leo pipefail {0}
-
   steps:
     - name: Checkout repository
       uses: actions/checkout@v4
 
     - name: Cloning Remote Repositories
+      env:
+        REPO_URL: "https://github.com/${{ inputs.org }}/${{ inputs.repo }}"
+      shell: bash -leo pipefail {0}
       run: |
         # mkdir -p -v "$HOME/${{ inputs.repo }}"
         git clone -b ${{ inputs.branch }} "${REPO_URL}" "$HOME/${{ inputs.repo }}"
-      env:
-        REPO_URL: "https://github.com/${{ inputs.org }}/${{ inputs.repo }}"
 
     - name: Set Up Python
       uses: actions/setup-python@v5
@@ -43,11 +40,13 @@ runs:
         python-version: 3.11
 
     - name: Beamline Specific Configurations
-      run: python3 ${ACTION_PATH}/special_config.py -b "${{ inputs.beamline_acronym }}"
       env:
         ACTION_PATH: ${{ github.action_path }}
+      shell: bash -leo pipefail {0}
+      run: python3 ${ACTION_PATH}/special_config.py -b "${{ inputs.beamline_acronym }}"
 
     - name: Setting up Blackhole IOC
+      shell: bash -leo pipefail {0}
       run: |
         python3 -m pip install -U caproto
         echo "\n" | python3 -m caproto.ioc_examples.pathological.spoof_beamline &
@@ -63,6 +62,7 @@ runs:
     #     ACTION_PATH: ${{ github.action_path }}
 
     - name: Create a conda env from Zenodo
+      shell: bash -leo pipefail {0}
       run: |
         url="${{ inputs.conda_env_url }}?download=1"
         wget --progress=dot:giga ${url} -O env.tar.gz
@@ -82,6 +82,7 @@ runs:
     - name: Configuring defaults (pyOlog, databroker, and kafka)
       env:
         BEAMLINE_ACRONYM: ${{ inputs.beamline_acronym | lower }}
+      shell: bash -leo pipefail {0}
       run: |
         echo "pyOlog config:"
         wget https://raw.githubusercontent.com/NSLS-II/profile-collection-ci/master/configs/pyOlog.conf -O $HOME/.pyOlog.conf
@@ -142,6 +143,7 @@ runs:
     - name: Performing Beamline Actions
       env:
         BEAMLINE_ACRONYM: ${{ inputs.beamline_acronym }}
+      shell: bash -leo pipefail {0}
       run: |
         echo "Performing beamline-specific tasks..."
         cfg_dir="/nsls2/data/$BEAMLINE_ACRONYM/shared/config"
@@ -154,6 +156,7 @@ runs:
         fi
 
     - name: Start Tiled Server
+      shell: bash -leo pipefail {0}
       run: |
         eval "$(conda shell.bash hook)"
         conda activate $HOME/env
@@ -166,6 +169,7 @@ runs:
         sleep 10
 
     - name: Activate IPython Profile and test the code
+      shell: bash -leo pipefail {0}
       run: |
         eval "$(conda shell.bash hook)"
         conda activate $HOME/env
