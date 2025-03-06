@@ -61,6 +61,14 @@ runs:
     #   env:
     #     ACTION_PATH: ${{ github.action_path }}
 
+    - uses: conda-incubator/setup-miniconda@v3
+      with:
+        activate-environment: ${{ env.REPOSITORY_NAME }}
+        auto-update-conda: true
+        miniforge-version: latest
+        python-version: "3.10"
+        conda-remove-defaults: true
+
     - name: Create a conda env from Zenodo
       shell: bash -leo pipefail {0}
       run: |
@@ -158,7 +166,7 @@ runs:
     - name: Start Tiled Server
       shell: bash -leo pipefail {0}
       run: |
-        eval "$(conda shell.bash hook)"
+        # eval "$(conda shell.bash hook)"
         conda activate $HOME/env
 
         for tiled_profile_name in nsls2 ${{ inputs.beamline_acronym }}; do
@@ -171,7 +179,6 @@ runs:
     - name: Activate IPython Profile and test the code
       shell: bash -leo pipefail {0}
       run: |
-        eval "$(conda shell.bash hook)"
         conda activate $HOME/env
 
         cd "$HOME/${{ inputs.repo }}"
