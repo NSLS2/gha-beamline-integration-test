@@ -63,7 +63,7 @@ runs:
 
     - uses: conda-incubator/setup-miniconda@v3
       with:
-        activate-environment: ${{ env.REPOSITORY_NAME }}
+        activate-environment: test-env
         auto-update-conda: true
         miniforge-version: latest
         python-version: "3.10"
