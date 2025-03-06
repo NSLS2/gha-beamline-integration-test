@@ -109,7 +109,7 @@ runs:
         echo "Tiled profile config:"
         tiled_profiles_dir="$HOME/.config/tiled/profiles/"
         mkdir -v -p "${tiled_profiles_dir}"
-        sed 's/^  //' << EOF > "${tiled_profiles_dir}/profiles.yml"
+        cat << EOF > ${tiled_profiles_dir}/profiles.yml
         ${beamline_acronym:-local}:
           direct:
             authentication:
@@ -121,22 +121,22 @@ runs:
                 uri: mongodb://localhost:27017/metadatastore-local
                 asset_registry_uri: mongodb://localhost:27017/asset-registry-local
         EOF
-          cat ${tiled_profiles_dir}/profiles.yml
+        cat ${tiled_profiles_dir}/profiles.yml
 
-          echo "Kafka config:"
-          sed 's/^  //' << EOF > kafka.yml
-          ---
-            abort_run_on_kafka_exception: false
-            bootstrap_servers:
-              - localhost:9092
-            runengine_producer_config:
-              security.protocol: PLAINTEXT
+        echo "Kafka config:"
+        cat << EOF > kafka.yml
+        ---
+          abort_run_on_kafka_exception: false
+          bootstrap_servers:
+            - localhost:9092
+          runengine_producer_config:
+            security.protocol: PLAINTEXT
         EOF
 
-          echo "SUDO: Placing kafka config in /etc/bluesky"
-          sudo mkdir -v -p /etc/bluesky/
-          sudo mv -v kafka.yml /etc/bluesky/kafka.yml
-          cat /etc/bluesky/kafka.yml
+        echo "SUDO: Placing kafka config in /etc/bluesky"
+        sudo mkdir -v -p /etc/bluesky/
+        sudo mv -v kafka.yml /etc/bluesky/kafka.yml
+        cat /etc/bluesky/kafka.yml
 
     - name: Configuring Redis
       uses: supercharge/redis-github-action@1.8.0
