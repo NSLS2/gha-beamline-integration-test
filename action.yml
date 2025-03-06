@@ -81,7 +81,7 @@ runs:
 
     - name: Configuring defaults (pyOlog, databroker, and kafka)
       env:
-        BEAMLINE_ACRONYM: ${{ inputs.beamline_acronym.lower() }}
+        BEAMLINE_ACRONYM: ${{ inputs.beamline_acronym }}
       shell: bash -leo pipefail {0}
       run: |
         echo "pyOlog config:"
@@ -90,7 +90,7 @@ runs:
 
         echo "Classic databroker v0/v1 config:"
         databroker_conf_dir="$HOME/.config/databroker"
-        beamline_acronym="${BEAMLINE_ACRONYM}"
+        beamline_acronym="${BEAMLINE_ACRONYM,,}"
         databroker_bl_conf="${beamline_acronym}.yml"
         mkdir -v -p ${databroker_conf_dir}
         wget https://raw.githubusercontent.com/NSLS-II/profile-collection-ci/master/configs/databroker.yml -O ${databroker_conf_dir}/_legacy_config.yml
