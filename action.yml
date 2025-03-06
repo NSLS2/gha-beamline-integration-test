@@ -1,11 +1,11 @@
 name: 'testing-conda-environment'
 description: 'Test a conda environment of a specific python version against all beamlines'
 inputs:
-  run-id:
-    description: 'workflow run id from github'
+  conda_env_url:
+    description: 'URL to download the conda-packd environment, e.g: https://zenodo.org/records/14862443/files/2025-1.0-py311-tiled.tar.gz'
     required: true
-  test-conda-packed-name:
-    description: 'name of the conda-packd environment, e.g: 2024-2.3-py311-tiled'
+  conda_env_md5:
+    description: 'MD5 checksum of the conda environment'
     required: true
   org:
     required: true
@@ -21,53 +21,67 @@ inputs:
     description: 'beamline tla'
 runs:
   using: 'composite'
+
+  defaults:
+    run:
+      shell: bash -leo pipefail {0}
+
   steps:
     - name: Checkout repository
       uses: actions/checkout@v4
+
     - name: Cloning Remote Repositories
       run: |
-        mkdir "${{ inputs.repo }}"
-        git clone -b ${{ inputs.branch }} "${REPO_URL}" "${{ inputs.repo }}"
+        # mkdir -p -v "$HOME/${{ inputs.repo }}"
+        git clone -b ${{ inputs.branch }} "${REPO_URL}" "$HOME/${{ inputs.repo }}"
       env:
         REPO_URL: "https://github.com/${{ inputs.org }}/${{ inputs.repo }}"
-      shell: bash
+
     - name: Set Up Python
       uses: actions/setup-python@v5
       with:
         python-version: 3.11
+
     - name: Beamline Specific Configurations
       run: python3 ${ACTION_PATH}/special_config.py -b "${{ inputs.beamline_acronym }}"
       env:
         ACTION_PATH: ${{ github.action_path }}
-      shell: bash
+
     - name: Setting up Blackhole IOC
       run: |
         python3 -m pip install -U caproto
-        echo | python3 -m caproto.ioc_examples.pathological.spoof_beamline &
+        echo "\n" | python3 -m caproto.ioc_examples.pathological.spoof_beamline &
         trap 'kill -SIGINT %1; echo exiting...' EXIT
         sudo ln -svf caproto-repeater "/bin/caRepeater"
-      shell: bash
-    - name: Checking Blackhole IOC PV's
+
+    # - name: Checking Blackhole IOC PV's
+    #   run: |
+    #     sudo pip install supervisor
+    #     chmod +x ${ACTION_PATH}/supervisor/start_supervisor.sh
+    #     ${ACTION_PATH}/supervisor/start_supervisor.sh status
+    #   env:
+    #     ACTION_PATH: ${{ github.action_path }}
+
+    - name: Create a conda env from Zenodo
       run: |
-        sudo pip install supervisor
-        chmod +x ${ACTION_PATH}/supervisor/start_supervisor.sh
-        ${ACTION_PATH}/supervisor/start_supervisor.sh status
-      env:
-        ACTION_PATH: ${{ github.action_path }}
-      shell: bash
-    - name: Download Artifacts
-      run: python3 ${ACTION_PATH}/parse_for_artifacts.py -a "${{ inputs.run-id }}" -c "${{ inputs.test-conda-packed-name }}"
-      env:
-        GHA_TOKEN: ${{ github.token }}
-        GH_TOKEN: ${{ github.token }}
-        ACTION_PATH: ${{ github.action_path }}
-      shell: bash
-#    - name: See environment
-#      run: |
-#        ls
-#        pwd
-#      shell: bash
+        url="${{ inputs.conda_env_url }}?download=1"
+        wget --progress=dot:giga ${url} -O env.tar.gz
+        status=$?
+        if [ $status -gt 0 ]; then
+            echo "Cannot download from ${url}. Exit code: ${status}"
+            exit $status
+        fi
+        echo "${{ inputs.conda_env_md5 }} env.tar.gz" > checksum.txt
+        md5sum --check checksum.txt
+        mkdir -p $HOME/env
+        echo "Unarchiving the tarball..."
+        tar -xf env.tar.gz -C $HOME/env
+        conda activate $HOME/env
+        conda-unpack
+
     - name: Configuring defaults (pyOlog, databroker, and kafka)
+      env:
+        BEAMLINE_ACRONYM: ${{ inputs.beamline_acronym | lower }}
       run: |
         echo "pyOlog config:"
         wget https://raw.githubusercontent.com/NSLS-II/profile-collection-ci/master/configs/pyOlog.conf -O $HOME/.pyOlog.conf
@@ -75,7 +89,7 @@ runs:
 
         echo "Classic databroker v0/v1 config:"
         databroker_conf_dir="$HOME/.config/databroker"
-        beamline_acronym="${BEAMLINE_ACRONYM,,}"
+        beamline_acronym="${BEAMLINE_ACRONYM}"
         databroker_bl_conf="${beamline_acronym}.yml"
         mkdir -v -p ${databroker_conf_dir}
         wget https://raw.githubusercontent.com/NSLS-II/profile-collection-ci/master/configs/databroker.yml -O ${databroker_conf_dir}/_legacy_config.yml
@@ -114,33 +128,17 @@ runs:
           sudo mkdir -v -p /etc/bluesky/
           sudo mv -v kafka.yml /etc/bluesky/kafka.yml
           cat /etc/bluesky/kafka.yml
-      shell: bash
-    - name: Extracting, Activating and Unpacking Conda Artifact
-      run: |
-        unzip -v "${{ inputs.test-conda-packed-name }}.zip"
-        mkdir -v -p "${CONDA_PREFIX}/envs/${{ inputs.test-conda-packed-name }}"
-        tar -xf "${{ inputs.test-conda-packed-name }}.tar.gz" -C "${CONDA_PREFIX}/envs/${{ inputs.test-conda-packed-name }}"
-        set +u
-        eval "$(conda shell.bash hook)"
-        echo ${CONDA_PREFIX}
-        conda activate "home/runner/miniconda/envs/${{ inputs.test-conda-packed-name }}"
-        echo ${CONDA_PREFIX}
-        conda unpack && echo "Unpacked successfully!"
-        set -u
-        conda env list
-        ls
-        pwd
-      env:
-        CONDA_PREFIX: home/runner/miniconda
-      shell: bash
+
     - name: Configuring Redis
       uses: supercharge/redis-github-action@1.8.0
       with:
         redis-version: latest
+
     - name: Configuring Mongo
       uses: supercharge/mongodb-github-action@1.11.0
       with:
         mongodb-version: '4.4'
+
     - name: Performing Beamline Actions
       env:
         BEAMLINE_ACRONYM: ${{ inputs.beamline_acronym }}
@@ -154,12 +152,11 @@ runs:
             exit 1
           )
         fi
-      shell: bash
-    - name: Activate IPython Profile
+
+    - name: Start Tiled Server
       run: |
-        set -eo pipefail
         eval "$(conda shell.bash hook)"
-        conda activate "home/runner/miniconda/envs/${{ inputs.test-conda-packed-name }}"
+        conda activate $HOME/env
 
         for tiled_profile_name in nsls2 ${{ inputs.beamline_acronym }}; do
           tiled profile create --name $tiled_profile_name http://127.0.0.1:8000
@@ -167,18 +164,32 @@ runs:
         export TILED_API_KEY=secret
         nohup tiled serve catalog --temp --api-key=$TILED_API_KEY &
         sleep 10
-        ipython --profile-dir "${{ inputs.repo }}"
-      shell: bash
-#    - name: Print inputs
-#      shell: bash
-#      run: |
-#        echo "${{ inputs.python-version }}"
-#        echo "${{ inputs.org }}"
-#        echo "${{ inputs.repo }}"
-#        echo "${{ inputs.branch }}"
-#        echo "${{ inputs.beamline-acronym }}"
-#    - name: Set GitHub Path
-#      shell: bash
-#      run: echo "$GITHUB_ACTION_PATH" >> $GITHUB_PATH
-#      env:
-#        GITHUB_ACTION_PATH: ${{ github.action_path }}
+
+    - name: Activate IPython Profile and test the code
+      run: |
+        eval "$(conda shell.bash hook)"
+        conda activate $HOME/env
+
+        cd "$HOME/${{ inputs.repo }}"
+
+        # Start Xvfb
+        # (from https://developercommunity.visualstudio.com/content/problem/336288/headless-testing-using-xvfb-on-hosted-ubuntu-1604.html)
+        /sbin/start-stop-daemon --start --quiet --pidfile /tmp/custom_xvfb_99.pid --make-pidfile --background --exec /usr/bin/Xvfb -- :99 -ac -screen 0 1280x1024x16
+        export DISPLAY=:99
+        # This is what IPython does internally to load the startup files:
+        command="
+        import os
+        import glob
+        ip = get_ipython()
+        startup_files = sorted(glob.glob(os.path.join(os.getcwd(), 'startup/*.py')))
+        if os.path.isfile('.ci/drop-in.py'):
+            startup_files.append('.ci/drop-in.py')
+        if not startup_files:
+            raise SystemExit(f'Cannot find any startup files in {os.getcwd()}')
+        for f in startup_files:
+            if not os.path.isfile(f):
+                raise FileNotFoundError(f'File {f} cannot be found.')
+            print(f'Executing {f} in CI')
+            ip.parent._exec_file(f)"
+        env | grep EPICS
+        ipython --profile=test -c "$command"
