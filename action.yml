@@ -166,12 +166,12 @@ runs:
     - name: Start Tiled Server
       shell: bash -leo pipefail {0}
       run: |
-        # eval "$(conda shell.bash hook)"
         conda activate $HOME/env
 
-        for tiled_profile_name in nsls2 ${{ inputs.beamline-acronym }}; do
-          tiled profile create --name $tiled_profile_name http://127.0.0.1:8000
-        done
+        # for tiled_profile_name in nsls2 ${{ inputs.beamline-acronym }}; do
+        #   tiled profile create --name $tiled_profile_name http://127.0.0.1:8000
+        # done
+
         export TILED_API_KEY=secret
         nohup tiled serve catalog --temp --api-key=$TILED_API_KEY &
         sleep 10
