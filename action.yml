@@ -81,7 +81,7 @@ runs:
 
     - name: Configuring defaults (pyOlog, databroker, and kafka)
       env:
-        BEAMLINE_ACRONYM: ${{ inputs.beamline_acronym | lower }}
+        BEAMLINE_ACRONYM: ${{ inputs.beamline_acronym.lower() }}
       shell: bash -leo pipefail {0}
       run: |
         echo "pyOlog config:"
