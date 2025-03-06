@@ -43,7 +43,7 @@ runs:
       env:
         ACTION_PATH: ${{ github.action_path }}
       shell: bash -leo pipefail {0}
-      run: python3 ${ACTION_PATH}/special_config.py -b "${{ inputs.beamline_acronym }}"
+      run: python3 ${ACTION_PATH}/special_config.py -b "${{ inputs.beamline-acronym }}"
 
     - name: Setting up Blackhole IOC
       shell: bash -leo pipefail {0}
@@ -89,7 +89,7 @@ runs:
 
     - name: Configuring defaults (pyOlog, databroker, and kafka)
       env:
-        BEAMLINE_ACRONYM: ${{ inputs.beamline_acronym }}
+        BEAMLINE_ACRONYM: ${{ inputs.beamline-acronym }}
       shell: bash -leo pipefail {0}
       run: |
         echo "pyOlog config:"
@@ -150,7 +150,7 @@ runs:
 
     - name: Performing Beamline Actions
       env:
-        BEAMLINE_ACRONYM: ${{ inputs.beamline_acronym }}
+        BEAMLINE_ACRONYM: ${{ inputs.beamline-acronym }}
       shell: bash -leo pipefail {0}
       run: |
         echo "Performing beamline-specific tasks..."
@@ -169,7 +169,7 @@ runs:
         # eval "$(conda shell.bash hook)"
         conda activate $HOME/env
 
-        for tiled_profile_name in nsls2 ${{ inputs.beamline_acronym }}; do
+        for tiled_profile_name in nsls2 ${{ inputs.beamline-acronym }}; do
           tiled profile create --name $tiled_profile_name http://127.0.0.1:8000
         done
         export TILED_API_KEY=secret
