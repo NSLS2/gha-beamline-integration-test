@@ -31,7 +31,6 @@ runs:
         REPO_URL: "https://github.com/${{ inputs.org }}/${{ inputs.repo }}"
       shell: bash -leo pipefail {0}
       run: |
-        # mkdir -p -v "$HOME/${{ inputs.repo }}"
         git clone -b ${{ inputs.branch }} "${REPO_URL}" "$HOME/${{ inputs.repo }}"
 
     - name: Set Up Python
@@ -43,7 +42,17 @@ runs:
       env:
         ACTION_PATH: ${{ github.action_path }}
       shell: bash -leo pipefail {0}
-      run: python3 ${ACTION_PATH}/special_config.py -b "${{ inputs.beamline-acronym }}"
+      run: |
+        python3 ${ACTION_PATH}/special_config.py -b "${{ inputs.beamline-acronym }}"
+
+    - name: EPICS env vars
+      shell: bash -leo pipefail {0}
+      run: |
+        export EPICS_CA_AUTO_ADDR_LIST="NO"
+        echo "EPICS_CA_AUTO_ADDR_LIST=${EPICS_CA_AUTO_ADDR_LIST}" >> $GITHUB_ENV
+
+        export EPICS_CA_ADDR_LIST="127.0.0.1"
+        echo "EPICS_CA_ADDR_LIST=${EPICS_CA_ADDR_LIST}" >> $GITHUB_ENV
 
     - name: Setting up Blackhole IOC
       shell: bash -leo pipefail {0}
@@ -52,14 +61,6 @@ runs:
         echo "\n" | python3 -m caproto.ioc_examples.pathological.spoof_beamline &
         trap 'kill -SIGINT %1; echo exiting...' EXIT
         sudo ln -svf caproto-repeater "/bin/caRepeater"
-
-    # - name: Checking Blackhole IOC PV's
-    #   run: |
-    #     sudo pip install supervisor
-    #     chmod +x ${ACTION_PATH}/supervisor/start_supervisor.sh
-    #     ${ACTION_PATH}/supervisor/start_supervisor.sh status
-    #   env:
-    #     ACTION_PATH: ${{ github.action_path }}
 
     - uses: conda-incubator/setup-miniconda@v3
       with:
