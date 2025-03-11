@@ -69,7 +69,7 @@ runs:
         # Remove the top-level .py files as they will be loaded separately from
         # profile_collection/startup dir. That allows proper capturing of the
         # exit code in case IPython startup files have issues.
-        rm -fv ~/.ipython/profile_${TEST_PROFILE}/startup/*.py
+        rm -fv ~/.ipython/profile_test/startup/*.py
 
     - name: Beamline-specific env vars
       shell: bash -leo pipefail {0}
