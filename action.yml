@@ -80,6 +80,9 @@ runs:
         export TILED_BLUESKY_WRITING_API_KEY_TES="test"
         echo "TILED_BLUESKY_WRITING_API_KEY_TES=${TILED_BLUESKY_WRITING_API_KEY_TES}" >> $GITHUB_ENV
 
+        export TILED_BLUESKY_WRITING_API_KEY_SRX="test"
+        echo "TILED_BLUESKY_WRITING_API_KEY_SRX=${TILED_BLUESKY_WRITING_API_KEY_SRX}" >> $GITHUB_ENV
+
     - name: EPICS env vars
       shell: bash -leo pipefail {0}
       run: |
@@ -186,15 +189,16 @@ runs:
       with:
         mongodb-version: '4.4'
 
+    - name: Create nsls2 tiled profile
+      shell: bash -leo pipefail {0}
+      run: |
+        conda activate $HOME/env
+        tiled profile create --name nsls2 http://127.0.0.1:8000
+
     - name: Start Tiled Server
       shell: bash -leo pipefail {0}
       run: |
         conda activate $HOME/env
-
-        # for tiled_profile_name in nsls2 ${{ inputs.beamline-acronym }}; do
-        #   tiled profile create --name $tiled_profile_name http://127.0.0.1:8000
-        # done
-
         export TILED_API_KEY=secret
         nohup tiled serve catalog --temp --api-key=$TILED_API_KEY &
         sleep 10
