@@ -71,13 +71,6 @@ runs:
         # exit code in case IPython startup files have issues.
         rm -fv ~/.ipython/profile_test/startup/*.py
 
-        # Add a placeholder for the info DNS entry:
-        # Per https://stackoverflow.com/a/66982842:
-        sudo echo "127.0.0.1 info.cms.nsls2.bnl.gov" | sudo tee -a /etc/hosts
-        cat /etc/hosts
-        ping -c 5 info.cms.nsls2.bnl.gov
-        echo "" | telnet info.cms.nsls2.bnl.gov 6379
-
     - name: Beamline-specific env vars
       shell: bash -leo pipefail {0}
       run: |
@@ -196,6 +189,15 @@ runs:
       uses: supercharge/redis-github-action@1.8.0
       with:
         redis-version: latest
+
+    - name: Add info DNS entry for local Redis
+      shell: bash -leo pipefail {0}
+      run: |
+        # Per https://stackoverflow.com/a/66982842:
+        sudo echo "127.0.0.1 info.cms.nsls2.bnl.gov" | sudo tee -a /etc/hosts
+        cat /etc/hosts
+        ping -c 5 info.cms.nsls2.bnl.gov
+        echo "" | telnet info.cms.nsls2.bnl.gov 6379
 
     - name: Configuring Mongo
       uses: supercharge/mongodb-github-action@1.11.0
