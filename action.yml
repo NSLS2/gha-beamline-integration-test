@@ -55,7 +55,7 @@ runs:
         sudo mkdir -v /nsls2/
         sudo chown -v $USER: /nsls2/
         mkdir -v -p /nsls2/data/${BEAMLINE_ACRONYM}/shared/config/RE-metadata
-        mkdir -v -p /nsls2/data/${BEAMLINE_ACRONYM}-new
+        mkdir -v -p /nsls2/data/${BEAMLINE_ACRONYM}-new  # e.g., fxi-new
         mkdir -v -p $HOME/.cache/bluesky/log/
 
         # TODO: fix SRX hardcoded paths.
@@ -63,8 +63,9 @@ runs:
         sudo chown -v $USER: /home/xf05id1/
         mkdir -v -p /home/xf05id1/.cache/bluesky/log/
 
+        mkdir -v -p $HOME/.ipython/
         # Copy the entire "startup" directory to the test profile.
-        cp -rv "$HOME/${{ inputs.repo }}" ~/.ipython/profile_test
+        cp -rv "$HOME/${{ inputs.repo }}" $HOME/.ipython/profile_test
         # Remove the top-level .py files as they will be loaded separately from
         # profile_collection/startup dir. That allows proper capturing of the
         # exit code in case IPython startup files have issues.
