@@ -56,12 +56,18 @@ runs:
         sudo chown -v $USER: /nsls2/
         mkdir -v -p /nsls2/data/${BEAMLINE_ACRONYM}/shared/config/RE-metadata
         mkdir -v -p /nsls2/data/${BEAMLINE_ACRONYM}-new  # e.g., fxi-new
-        mkdir -v -p $HOME/.cache/bluesky/log/
 
         # TODO: fix SRX hardcoded paths.
-        sudo mkdir -v -p /home/xf05id1/
-        sudo chown -v $USER: /home/xf05id1/
-        mkdir -v -p /home/xf05id1/.cache/bluesky/log/
+        if [ "${BEAMLINE_ACRONYM}" == "srx" ]; then
+            export LOGS_HOME="/home/xf05id1"
+            sudo mkdir -v -p /home/xf05id1/
+            sudo chown -v $USER: /home/xf05id1/
+        else
+            export LOGS_HOME="$HOME"
+        fi
+        echo "LOGS_HOME=${LOGS_HOME}" >> $GITHUB_ENV
+
+        mkdir -v -p ${LOGS_HOME}/.cache/bluesky/log/
 
         mkdir -v -p $HOME/.ipython/
         # Copy the entire "startup" directory to the test profile.
@@ -255,9 +261,9 @@ runs:
       shell: bash -leo pipefail {0}
       run: |
         echo -e "\n\n=============================================================="
-        cat $HOME/.cache/bluesky/log/bluesky.log
+        cat ${LOGS_HOME}/.cache/bluesky/log/bluesky.log
         echo -e "=============================================================="
 
         echo -e "\n\n=============================================================="
-        cat $HOME/.cache/bluesky/log/bluesky_ipython.log
+        cat ${LOGS_HOME}/.cache/bluesky/log/bluesky_ipython.log
         echo -e "\n\n=============================================================="
