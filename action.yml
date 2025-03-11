@@ -71,17 +71,30 @@ runs:
         # exit code in case IPython startup files have issues.
         rm -fv ~/.ipython/profile_test/startup/*.py
 
+        # Add a placeholder for the info DNS entry:
+        # Per https://stackoverflow.com/a/66982842:
+        sudo echo "127.0.0.1 info.cms.nsls2.bnl.gov" | sudo tee -a /etc/hosts
+        cat /etc/hosts
+        ping -c 5 info.cms.nsls2.bnl.gov
+        echo "" | telnet info.cms.nsls2.bnl.gov 6379
+
     - name: Beamline-specific env vars
       shell: bash -leo pipefail {0}
       run: |
-        export TILED_BLUESKY_WRITING_API_KEY_BMM="test"
+        export TILED_BLUESKY_WRITING_API_KEY_BMM="secret"
         echo "TILED_BLUESKY_WRITING_API_KEY_BMM=${TILED_BLUESKY_WRITING_API_KEY_BMM}" >> $GITHUB_ENV
 
-        export TILED_BLUESKY_WRITING_API_KEY_TES="test"
+        export TILED_BLUESKY_WRITING_API_KEY_TES="secret"
         echo "TILED_BLUESKY_WRITING_API_KEY_TES=${TILED_BLUESKY_WRITING_API_KEY_TES}" >> $GITHUB_ENV
 
-        export TILED_BLUESKY_WRITING_API_KEY_SRX="test"
+        export TILED_BLUESKY_WRITING_API_KEY_SRX="secret"
         echo "TILED_BLUESKY_WRITING_API_KEY_SRX=${TILED_BLUESKY_WRITING_API_KEY_SRX}" >> $GITHUB_ENV
+
+        export MONGO_USER_CHX="test"
+        echo "MONGO_USER_CHX=${MONGO_USER_CHX}" >> $GITHUB_ENV
+
+        export MONGO_PASSWORD_CHX="test"
+        echo "MONGO_PASSWORD_CHX=${MONGO_PASSWORD_CHX}" >> $GITHUB_ENV
 
     - name: EPICS env vars
       shell: bash -leo pipefail {0}
