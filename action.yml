@@ -38,12 +38,46 @@ runs:
       with:
         python-version: 3.11
 
+    # - name: Beamline Specific Configurations
+    #   env:
+    #     ACTION_PATH: ${{ github.action_path }}
+    #   shell: bash -leo pipefail {0}
+    #   run: |
+    #     # TODO: implement the config via the Python script below later:
+    #     # python3 ${ACTION_PATH}/special_config.py -b "${{ inputs.beamline-acronym }}"
+
     - name: Beamline Specific Configurations
       env:
-        ACTION_PATH: ${{ github.action_path }}
+        BEAMLINE_ACRONYM: ${{ inputs.beamline-acronym }}
       shell: bash -leo pipefail {0}
       run: |
-        python3 ${ACTION_PATH}/special_config.py -b "${{ inputs.beamline-acronym }}"
+        echo "Performing beamline-specific tasks..."
+        sudo mkdir -v /nsls2/
+        sudo chown -v $USER: /nsls2/
+        mkdir -v -p /nsls2/data/${BEAMLINE_ACRONYM}/shared/config/RE-metadata
+        mkdir -v -p /nsls2/data/${BEAMLINE_ACRONYM}-new
+        mkdir -v -p $HOME/.cache/bluesky/log/
+
+        # TODO: fix SRX hardcoded paths.
+        sudo mkdir -v -p /home/xf05id1/
+        sudo chown -v $USER: /home/xf05id1/
+        mkdir -v -p /home/xf05id1/.cache/bluesky/log/
+
+        # Copy the entire "startup" directory to the test profile.
+        cp -rv "$HOME/${{ inputs.repo }}" ~/.ipython/profile_test
+        # Remove the top-level .py files as they will be loaded separately from
+        # profile_collection/startup dir. That allows proper capturing of the
+        # exit code in case IPython startup files have issues.
+        rm -fv ~/.ipython/profile_${TEST_PROFILE}/startup/*.py
+
+    - name: Beamline-specific env vars
+      shell: bash -leo pipefail {0}
+      run: |
+        export TILED_BLUESKY_WRITING_API_KEY_BMM="test"
+        echo "TILED_BLUESKY_WRITING_API_KEY_BMM=${TILED_BLUESKY_WRITING_API_KEY_BMM}" >> $GITHUB_ENV
+
+        export TILED_BLUESKY_WRITING_API_KEY_TES="test"
+        echo "TILED_BLUESKY_WRITING_API_KEY_TES=${TILED_BLUESKY_WRITING_API_KEY_TES}" >> $GITHUB_ENV
 
     - name: EPICS env vars
       shell: bash -leo pipefail {0}
@@ -87,6 +121,8 @@ runs:
         tar -xf env.tar.gz -C $HOME/env
         conda activate $HOME/env
         conda-unpack
+        # TODO: release in conda-forge and add it to the standard conda env:
+        python3 -m pip install mpl-qtthread
 
     - name: Configuring defaults (pyOlog, databroker, and kafka)
       env:
@@ -149,21 +185,6 @@ runs:
       with:
         mongodb-version: '4.4'
 
-    - name: Performing Beamline Actions
-      env:
-        BEAMLINE_ACRONYM: ${{ inputs.beamline-acronym }}
-      shell: bash -leo pipefail {0}
-      run: |
-        echo "Performing beamline-specific tasks..."
-        cfg_dir="/nsls2/data/$BEAMLINE_ACRONYM/shared/config"
-        if [[ ! -d "$cfg_dir" ]]; then
-          sudo mkdir -v -p "$cfg_dir" ||
-          (
-            echo "Error: Couldn't create dir: $cfg_dir"
-            exit 1
-          )
-        fi
-
     - name: Start Tiled Server
       shell: bash -leo pipefail {0}
       run: |
@@ -205,3 +226,15 @@ runs:
             ip.parent._exec_file(f)"
         env | grep EPICS
         ipython --profile=test -c "$command"
+
+    - name: Check bluesky logs
+      if: always()
+      shell: bash -leo pipefail {0}
+      run: |
+        echo -e "\n\n=============================================================="
+        cat $HOME/.cache/bluesky/log/bluesky.log
+        echo -e "=============================================================="
+
+        echo -e "\n\n=============================================================="
+        cat $HOME/.cache/bluesky/log/bluesky_ipython.log
+        echo -e "\n\n=============================================================="
