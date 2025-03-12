@@ -231,6 +231,14 @@ runs:
         conda activate $HOME/env
         tiled profile create --name nsls2 http://127.0.0.1:8000
 
+    - name: Start Tiled Server
+      shell: bash -leo pipefail {0}
+      run: |
+        conda activate $HOME/env
+        export TILED_API_KEY=secret
+        nohup tiled serve catalog --temp --api-key=$TILED_API_KEY &
+        sleep 10
+
     - name: Create TLA tiled profile
       shell: bash -leo pipefail {0}
       run: |
@@ -244,14 +252,6 @@ runs:
         client.create_container(tla).create_container('raw', specs=['CatalogOfBluesklyRuns'])
         print(client[tla]['raw'])"
         python3 -c "$command"
-
-    - name: Start Tiled Server
-      shell: bash -leo pipefail {0}
-      run: |
-        conda activate $HOME/env
-        export TILED_API_KEY=secret
-        nohup tiled serve catalog --temp --api-key=$TILED_API_KEY &
-        sleep 10
 
     - name: Activate IPython Profile and test the code
       shell: bash -leo pipefail {0}
