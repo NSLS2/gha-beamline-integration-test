@@ -241,14 +241,16 @@ runs:
 
     - name: Create TLA tiled profile
       shell: bash -leo pipefail {0}
+      env:
+        BEAMLINE_ACRONYM: ${{ inputs.beamline-acronym }}
       run: |
         conda activate $HOME/env
         command="
         import os
         from tiled.client import from_profile
-        tla = '${{ inputs.beamline-acronym }}'.lower()
+        tla = os.getenv('BEAMLINE_ACRONYM', 'XYZ').lower()
         TLA = tla.upper()
-        client = from_profile('nsls2', api_key=os.getenv(f'TILED_BLUESKY_WRITING_API_KEY_{TLA}'))
+        client = from_profile('nsls2', api_key=os.getenv(f'TILED_BLUESKY_WRITING_API_KEY_{TLA}', 'secret'))
         client.create_container(tla).create_container('raw', specs=['CatalogOfBluesklyRuns'])
         print(client[tla]['raw'])"
         python3 -c "$command"
