@@ -231,6 +231,20 @@ runs:
         conda activate $HOME/env
         tiled profile create --name nsls2 http://127.0.0.1:8000
 
+    - name: Create TLA tiled profile
+      shell: bash -leo pipefail {0}
+      run: |
+        conda activate $HOME/env
+        command="
+        import os
+        from tiled.client import from_profile
+        tla = '${{ inputs.beamline-acronym }}'.lower()
+        TLA = tla.upper()
+        client = from_profile('nsls2', api_key=os.getenv(f'TILED_BLUESKY_WRITING_API_KEY_{TLA}'))
+        client.create_container(tla).create_container('raw', specs=['CatalogOfBluesklyRuns'])
+        print(client[tla]['raw'])"
+        python3 -c $command
+
     - name: Start Tiled Server
       shell: bash -leo pipefail {0}
       run: |
