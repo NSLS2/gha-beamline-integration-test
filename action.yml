@@ -267,3 +267,8 @@ runs:
         echo -e "\n\n=============================================================="
         cat ${LOGS_HOME}/.cache/bluesky/log/bluesky_ipython.log
         echo -e "\n\n=============================================================="
+
+    - name: Job completed
+      shell: bash -leo pipefail {0}
+      run: |
+        echo "### Test results\nTest for ${{ inputs.beamline-acronym }} / ${{ inputs.repo }} @ ${{ inputs.branch }} finished." >> $GITHUB_STEP_SUMMARY
