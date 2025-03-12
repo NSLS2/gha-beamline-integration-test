@@ -199,19 +199,31 @@ runs:
       with:
         redis-version: latest
 
-    - name: Add info DNS entry for local Redis
-      shell: bash -leo pipefail {0}
-      run: |
-        # Per https://stackoverflow.com/a/66982842:
-        sudo echo "127.0.0.1 info.cms.nsls2.bnl.gov" | sudo tee -a /etc/hosts
-        cat /etc/hosts
-        ping -c 5 info.cms.nsls2.bnl.gov
-        echo "" | telnet info.cms.nsls2.bnl.gov 6379
-
     - name: Configuring Mongo
       uses: supercharge/mongodb-github-action@1.11.0
       with:
         mongodb-version: '4.4'
+
+    - name: Add info DNS entries for local Redis and Mongo
+      shell: bash -leo pipefail {0}
+      run: |
+        # Per https://stackoverflow.com/a/66982842:
+        sudo echo "127.0.0.1 info.cms.nsls2.bnl.gov" | sudo tee -a /etc/hosts
+        for i in {1..3}; do
+            sudo echo "127.0.0.1 mongo${i}.nsls2.bnl.gov" | sudo tee -a /etc/hosts
+        done
+        cat /etc/hosts
+
+        echo "Pinging info.cms.nsls2.bnl.gov..."
+        ping -c 5 info.cms.nsls2.bnl.gov
+        echo "Telnetting to info.cms.nsls2.bnl.gov:6379..."
+        echo "" | telnet info.cms.nsls2.bnl.gov 6379
+        for i in {1..3}; do
+            echo "Pinging mongo${i}.nsls2.bnl.gov..."
+            ping -c 5 mongo${i}.nsls2.bnl.gov
+            echo "Telnetting to mongo${i}.nsls2.bnl.gov:27017..."
+            echo "" | telnet mongo${i}.nsls2.bnl.gov 27017
+        done
 
     - name: Create nsls2 tiled profile
       shell: bash -leo pipefail {0}
@@ -271,4 +283,4 @@ runs:
     - name: Job completed
       shell: bash -leo pipefail {0}
       run: |
-        echo "### Test results\nTest for ${{ inputs.beamline-acronym }} / ${{ inputs.repo }} @ ${{ inputs.branch }} finished." >> $GITHUB_STEP_SUMMARY
+        echo -e "### Test results\n\nTest for ${{ inputs.beamline-acronym }}:${{ inputs.repo }}@${{ inputs.branch }} finished." >> $GITHUB_STEP_SUMMARY
