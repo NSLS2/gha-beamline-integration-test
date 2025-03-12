@@ -243,7 +243,7 @@ runs:
         client = from_profile('nsls2', api_key=os.getenv(f'TILED_BLUESKY_WRITING_API_KEY_{TLA}'))
         client.create_container(tla).create_container('raw', specs=['CatalogOfBluesklyRuns'])
         print(client[tla]['raw'])"
-        python3 -c $command
+        python3 -c "$command"
 
     - name: Start Tiled Server
       shell: bash -leo pipefail {0}
