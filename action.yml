@@ -236,6 +236,7 @@ runs:
       run: |
         conda activate $HOME/env
         export TILED_API_KEY=secret
+        echo "TILED_API_KEY=${TILED_API_KEY}" >> $GITHUB_ENV
         nohup tiled serve catalog --temp --api-key=$TILED_API_KEY &
         sleep 10
 
