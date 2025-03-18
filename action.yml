@@ -132,22 +132,35 @@ runs:
         python-version: "3.10"
         conda-remove-defaults: true
 
-    - name: Create a conda env from Zenodo
-      shell: bash -leo pipefail {0}
+    - name: Cache Conda Environment
+      id : cache-conda
+      uses: actions/cache@v4
+      with: 
+        path: ~/download_conda_env
+        key: ${{ runner.os }}-${{ hashFiles('env.tar.gz') }}
+
+    - name: Download and Cache Conda env from Zenodo
+      if: steps.cache-conda.outputs.cache-hit == 'true'
       run: |
-        echo "::group::Downloading and setting up conda environment"
+        echo "::group::Downloading and caching conda environment"
         url="${{ inputs.conda_env_url }}?download=1"
-        wget --progress=dot:giga ${url} -O env.tar.gz
+        mkdir -p ~/download_conda_env
+        wget --progress=dot:giga ${url} -O ~/download_conda_env/env.tar.gz
         status=$?
         if [ $status -gt 0 ]; then
             echo "Cannot download from ${url}. Exit code: ${status}"
             exit $status
         fi
-        echo "${{ inputs.conda_env_md5 }} env.tar.gz" > checksum.txt
+        echo "::endgroup::"
+
+    - name: Create a conda env from downloaded file or cache
+      shell: bash -leo pipefail {0}
+      run: |
+        echo "${{ inputs.conda_env_md5 }} ~/download_conda_env/env.tar.gz" > checksum.txt
         md5sum --check checksum.txt
         mkdir -p $HOME/env
         echo "Unarchiving the tarball..."
-        tar -xf env.tar.gz -C $HOME/env
+        tar -xf ~/download_conda_env/env.tar.gz -C $HOME/env
         conda activate $HOME/env
         conda-unpack
         # TODO: release in conda-forge and add it to the standard conda env:
