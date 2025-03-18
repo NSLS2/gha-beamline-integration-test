@@ -137,7 +137,7 @@ runs:
       uses: actions/cache@v4
       with: 
         path: ~/download_conda_env
-        key: ${{ runner.os }}-${{ hashFiles('env.tar.gz') }}
+        key: ${{ runner.os }}-${{ hashFiles('~/download_conda_env/env.tar.gz') }}
 
     - name: Download and Cache Conda env from Zenodo
       if: steps.cache-conda.outputs.cache-hit != 'true'
