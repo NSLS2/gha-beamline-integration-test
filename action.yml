@@ -25,13 +25,14 @@ runs:
   steps:
     - name: Checkout repository
       uses: actions/checkout@v4
-
     - name: Cloning Remote Repositories
       env:
         REPO_URL: "https://github.com/${{ inputs.org }}/${{ inputs.repo }}"
       shell: bash -leo pipefail {0}
       run: |
+        echo "::group::Cloning repository"
         git clone -b ${{ inputs.branch }} "${REPO_URL}" "$HOME/${{ inputs.repo }}"
+        echo "::endgroup::"
 
     - name: Set Up Python
       uses: actions/setup-python@v5
@@ -51,7 +52,7 @@ runs:
         BEAMLINE_ACRONYM: ${{ inputs.beamline-acronym }}
       shell: bash -leo pipefail {0}
       run: |
-        echo "Performing beamline-specific tasks..."
+        echo "::group::Performing beamline-specific tasks"
         sudo mkdir -v /nsls2/
         sudo chown -v $USER: /nsls2/
         mkdir -v -p /nsls2/data/${BEAMLINE_ACRONYM}/shared/config/RE-metadata
@@ -76,10 +77,12 @@ runs:
         # profile_collection/startup dir. That allows proper capturing of the
         # exit code in case IPython startup files have issues.
         rm -fv ~/.ipython/profile_test/startup/*.py
+        echo "::endgroup::"
 
     - name: Beamline-specific env vars
       shell: bash -leo pipefail {0}
       run: |
+        echo "::group::Setting up beamline-specific environment variables"
         export TILED_BLUESKY_WRITING_API_KEY_BMM="secret"
         echo "TILED_BLUESKY_WRITING_API_KEY_BMM=${TILED_BLUESKY_WRITING_API_KEY_BMM}" >> $GITHUB_ENV
 
@@ -97,23 +100,28 @@ runs:
 
         export MONGO_PASSWORD_CHX="test"
         echo "MONGO_PASSWORD_CHX=${MONGO_PASSWORD_CHX}" >> $GITHUB_ENV
+        echo "::endgroup::"
 
     - name: EPICS env vars
       shell: bash -leo pipefail {0}
       run: |
+        echo "::group::Setting up EPICS environment variables"
         export EPICS_CA_AUTO_ADDR_LIST="NO"
         echo "EPICS_CA_AUTO_ADDR_LIST=${EPICS_CA_AUTO_ADDR_LIST}" >> $GITHUB_ENV
 
         export EPICS_CA_ADDR_LIST="127.0.0.1"
         echo "EPICS_CA_ADDR_LIST=${EPICS_CA_ADDR_LIST}" >> $GITHUB_ENV
+        echo "::endgroup::"
 
     - name: Setting up Blackhole IOC
       shell: bash -leo pipefail {0}
       run: |
+        echo "::group::Setting up Blackhole IOC"
         python3 -m pip install -U caproto
         echo "\n" | python3 -m caproto.ioc_examples.pathological.spoof_beamline &
         trap 'kill -SIGINT %1; echo exiting...' EXIT
         sudo ln -svf caproto-repeater "/bin/caRepeater"
+        echo "::endgroup::"
 
     - uses: conda-incubator/setup-miniconda@v3
       with:
@@ -126,6 +134,7 @@ runs:
     - name: Create a conda env from Zenodo
       shell: bash -leo pipefail {0}
       run: |
+        echo "::group::Downloading and setting up conda environment"
         url="${{ inputs.conda_env_url }}?download=1"
         wget --progress=dot:giga ${url} -O env.tar.gz
         status=$?
@@ -142,17 +151,19 @@ runs:
         conda-unpack
         # TODO: release in conda-forge and add it to the standard conda env:
         python3 -m pip install mpl-qtthread
+        echo "::endgroup::"
 
     - name: Configuring defaults (pyOlog, databroker, and kafka)
       env:
         BEAMLINE_ACRONYM: ${{ inputs.beamline-acronym }}
       shell: bash -leo pipefail {0}
       run: |
-        echo "pyOlog config:"
+        echo "::group::pyOlog configuration"
         wget https://raw.githubusercontent.com/NSLS-II/profile-collection-ci/master/configs/pyOlog.conf -O $HOME/.pyOlog.conf
         cat $HOME/.pyOlog.conf
+        echo "::endgroup::"
 
-        echo "Classic databroker v0/v1 config:"
+        echo "::group::Classic databroker v0/v1 configuration"
         databroker_conf_dir="$HOME/.config/databroker"
         beamline_acronym="${BEAMLINE_ACRONYM,,}"
         databroker_bl_conf="${beamline_acronym}.yml"
@@ -161,8 +172,9 @@ runs:
         cp -v ${databroker_conf_dir}/_legacy_config.yml ${databroker_conf_dir}/${databroker_bl_conf}
         cat ${databroker_conf_dir}/_legacy_config.yml
         cat ${databroker_conf_dir}/${databroker_bl_conf}
+        echo "::endgroup::"
 
-        echo "Tiled profile config:"
+        echo "::group::Tiled profile configuration"
         tiled_profiles_dir="$HOME/.config/tiled/profiles/"
         mkdir -v -p "${tiled_profiles_dir}"
         cat << EOF > ${tiled_profiles_dir}/profiles.yml
@@ -178,8 +190,9 @@ runs:
                 asset_registry_uri: mongodb://localhost:27017/asset-registry-local
         EOF
         cat ${tiled_profiles_dir}/profiles.yml
+        echo "::endgroup::"
 
-        echo "Kafka config:"
+        echo "::group::Kafka configuration"
         cat << EOF > kafka.yml
         ---
           abort_run_on_kafka_exception: false
@@ -193,6 +206,7 @@ runs:
         sudo mkdir -v -p /etc/bluesky/
         sudo mv -v kafka.yml /etc/bluesky/kafka.yml
         cat /etc/bluesky/kafka.yml
+        echo "::endgroup::"
 
     - name: Configuring Redis
       uses: supercharge/redis-github-action@1.8.0
@@ -207,13 +221,16 @@ runs:
     - name: Add info DNS entries for local Redis and Mongo
       shell: bash -leo pipefail {0}
       run: |
+        echo "::group::Setting up DNS entries"
         # Per https://stackoverflow.com/a/66982842:
         sudo echo "127.0.0.1 info.cms.nsls2.bnl.gov" | sudo tee -a /etc/hosts
         for i in {1..3}; do
             sudo echo "127.0.0.1 mongo${i}.nsls2.bnl.gov" | sudo tee -a /etc/hosts
         done
         cat /etc/hosts
+        echo "::endgroup::"
 
+        echo "::group::Testing connections"
         echo "Pinging info.cms.nsls2.bnl.gov..."
         ping -c 5 info.cms.nsls2.bnl.gov
         echo "Telnetting to info.cms.nsls2.bnl.gov:6379..."
@@ -224,27 +241,33 @@ runs:
             echo "Telnetting to mongo${i}.nsls2.bnl.gov:27017..."
             echo "" | telnet mongo${i}.nsls2.bnl.gov 27017
         done
+        echo "::endgroup::"
 
     - name: Create nsls2 tiled profile
       shell: bash -leo pipefail {0}
       run: |
+        echo "::group::Creating NSLS2 tiled profile"
         conda activate $HOME/env
         tiled profile create --name nsls2 http://127.0.0.1:8000
+        echo "::endgroup::"
 
     - name: Start Tiled Server
       shell: bash -leo pipefail {0}
       run: |
+        echo "::group::Starting Tiled server"
         conda activate $HOME/env
         export TILED_API_KEY=secret
         echo "TILED_API_KEY=${TILED_API_KEY}" >> $GITHUB_ENV
         nohup tiled serve catalog --temp --api-key=$TILED_API_KEY &
         sleep 10
+        echo "::endgroup::"
 
     - name: Create TLA tiled profile
       shell: bash -leo pipefail {0}
       env:
         BEAMLINE_ACRONYM: ${{ inputs.beamline-acronym }}
       run: |
+        echo "::group::Creating TLA tiled profile"
         conda activate $HOME/env
         command="
         import os
@@ -255,19 +278,20 @@ runs:
         client.create_container(tla).create_container('raw', specs=['CatalogOfBluesklyRuns'])
         print(client[tla]['raw'])"
         python3 -c "$command"
+        echo "::endgroup::"
 
     - name: Activate IPython Profile and test the code
       shell: bash -leo pipefail {0}
       run: |
+        echo "::group::Setting up display and running tests"
         conda activate $HOME/env
 
         cd "$HOME/${{ inputs.repo }}"
 
         # Start Xvfb
-        # (from https://developercommunity.visualstudio.com/content/problem/336288/headless-testing-using-xvfb-on-hosted-ubuntu-1604.html)
         /sbin/start-stop-daemon --start --quiet --pidfile /tmp/custom_xvfb_99.pid --make-pidfile --background --exec /usr/bin/Xvfb -- :99 -ac -screen 0 1280x1024x16
         export DISPLAY=:99
-        # This is what IPython does internally to load the startup files:
+        
         command="
         import os
         import glob
@@ -284,20 +308,27 @@ runs:
             ip.parent._exec_file(f)"
         env | grep EPICS
         ipython --profile=test -c "$command"
+        echo "::endgroup::"
 
     - name: Check bluesky logs
       if: always()
       shell: bash -leo pipefail {0}
       run: |
+        echo "::group::Bluesky logs"
         echo -e "\n\n=============================================================="
         cat ${LOGS_HOME}/.cache/bluesky/log/bluesky.log
         echo -e "=============================================================="
+        echo "::endgroup::"
 
+        echo "::group::Bluesky IPython logs"
         echo -e "\n\n=============================================================="
         cat ${LOGS_HOME}/.cache/bluesky/log/bluesky_ipython.log
         echo -e "\n\n=============================================================="
+        echo "::endgroup::"
 
     - name: Job completed
       shell: bash -leo pipefail {0}
       run: |
+        echo "::group::Test results summary"
         echo -e "### Test results\n\nTest for ${{ inputs.beamline-acronym }}:${{ inputs.repo }}@${{ inputs.branch }} finished." >> $GITHUB_STEP_SUMMARY
+        echo "::endgroup::"
