@@ -42,6 +42,18 @@ runs:
         if [ ! -f "$HOME/${{ inputs.repo }}/LICENSE" ]; then
             echo "LICENSE file not found in $HOME/${{ inputs.repo }}. Exiting..."
             exit 1
+        else
+            cat "$HOME/${{ inputs.repo }}/LICENSE"
+        fi
+        echo "::endgroup::"
+
+    - name: Check if LICENSE has BNL
+      shell: bash -leo pipefail {0}
+      run: |
+        echo "::group::Checking for BNL in LICENSE file"
+        if ! grep -q "Brookhaven National Laboratory" "$HOME/${{ inputs.repo }}/LICENSE"; then
+            echo "LICENSE file does not contain 'Brookhaven National Laboratory'. Exiting..."
+            exit 1
         fi
         echo "::endgroup::"
 
