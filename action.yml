@@ -132,12 +132,21 @@ runs:
         python-version: "3.10"
         conda-remove-defaults: true
 
+    - name: Parse Conda Environment Version
+      id: parse-conda-env-version
+      shell: bash -leo pipefail {0}
+      run: |
+        echo "::group::Parsing conda version"
+        conda_env_version=$(echo "${{ inputs.conda_env_url }}" | rev | cut -d '/' -f 1 | rev | sed "s/\.tar\.gz//g" )
+        echo "CONDA_ENV_VERSION=${conda_env_version}" >> $GITHUB_ENV
+        echo "::endgroup::"
+
     - name: Cache Conda Environment
       id : cache-conda
       uses: actions/cache@v4
       with: 
         path: ~/download_conda_env
-        key: ${{ runner.os }}-${{ inputs.conda_env_md5 }}
+        key: ${{ runner.os }}-${{ env.CONDA_ENV_VERSION }}-${{ inputs.conda_env_md5 }}
 
     - name: Download and Cache Conda env from Zenodo
       if: steps.cache-conda.outputs.cache-hit != 'true'
