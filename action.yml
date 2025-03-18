@@ -157,7 +157,7 @@ runs:
     - name: Create a conda env from downloaded file or cache
       shell: bash -leo pipefail {0}
       run: |
-        echo "${{ inputs.conda_env_md5 }} ~/download_conda_env/env.tar.gz" > checksum.txt
+        echo "${{ inputs.conda_env_md5 }} $HOME/download_conda_env/env.tar.gz" > checksum.txt
         md5sum --check checksum.txt
         mkdir -p $HOME/env
         echo "Unarchiving the tarball..."
