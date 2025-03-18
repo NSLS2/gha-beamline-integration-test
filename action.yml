@@ -3,10 +3,10 @@ description: 'Test a conda environment of a specific python version against all 
 inputs:
   conda_env_url:
     description: 'URL to download the conda-packd environment, e.g: https://zenodo.org/records/14862443/files/2025-1.0-py311-tiled.tar.gz'
-    required: true
+    required: false
   conda_env_md5:
     description: 'MD5 checksum of the conda environment'
-    required: true
+    required: false
   org:
     required: true
     description: 'beamline github org'
