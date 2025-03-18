@@ -145,7 +145,7 @@ runs:
         echo "::group::Downloading and caching conda environment"
         url="${{ inputs.conda_env_url }}?download=1"
         mkdir -p ~/download_conda_env
-        wget --progress=dot:giga ${url} -O ~/download_conda_env/env.tar.gz
+        time wget --progress=dot:giga ${url} -O ~/download_conda_env/env.tar.gz
         status=$?
         if [ $status -gt 0 ]; then
             echo "Cannot download from ${url}. Exit code: ${status}"
