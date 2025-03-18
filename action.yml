@@ -140,7 +140,7 @@ runs:
         key: ${{ runner.os }}-${{ hashFiles('env.tar.gz') }}
 
     - name: Download and Cache Conda env from Zenodo
-      if: steps.cache-conda.outputs.cache-hit == 'true'
+      if: steps.cache-conda.outputs.cache-hit != 'true'
       shell: bash -leo pipefail {0}
       run: |
         echo "::group::Downloading and caching conda environment"
