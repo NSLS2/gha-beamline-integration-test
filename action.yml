@@ -137,7 +137,7 @@ runs:
       shell: bash -leo pipefail {0}
       run: |
         echo "::group::Parsing conda version"
-        conda_env_version=$(echo "${{ inputs.conda_env_url }}" | rev | cut -d '/' -f 1 | rev | sed "s/\.tar\.gz//g" )
+        conda_env_version=$(echo "${{ inputs.conda_env_url }}" | sed -E 's|^.*/||; s|\.tar\.gz$||' )
         echo "CONDA_ENV_VERSION=${conda_env_version}" >> $GITHUB_ENV
         echo "::endgroup::"
 
