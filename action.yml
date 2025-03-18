@@ -141,6 +141,7 @@ runs:
 
     - name: Download and Cache Conda env from Zenodo
       if: steps.cache-conda.outputs.cache-hit == 'true'
+      shell: bash -leo pipefail {0}
       run: |
         echo "::group::Downloading and caching conda environment"
         url="${{ inputs.conda_env_url }}?download=1"
