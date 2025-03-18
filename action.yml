@@ -132,22 +132,45 @@ runs:
         python-version: "3.10"
         conda-remove-defaults: true
 
-    - name: Create a conda env from Zenodo
+    - name: Parse Conda Environment Version
+      id: parse-conda-env-version
       shell: bash -leo pipefail {0}
       run: |
-        echo "::group::Downloading and setting up conda environment"
+        echo "::group::Parsing conda version"
+        conda_env_version=$(echo "${{ inputs.conda_env_url }}" | sed -E 's|^.*/||; s|\.tar\.gz$||' )
+        echo "CONDA_ENV_VERSION=${conda_env_version}" >> $GITHUB_ENV
+        echo "::endgroup::"
+
+    - name: Cache Conda Environment
+      id : cache-conda
+      uses: actions/cache@v4
+      with: 
+        path: ~/download_conda_env
+        key: ${{ runner.os }}-${{ env.CONDA_ENV_VERSION }}-${{ inputs.conda_env_md5 }}
+
+    - name: Download and Cache Conda env from Zenodo
+      if: steps.cache-conda.outputs.cache-hit != 'true'
+      shell: bash -leo pipefail {0}
+      run: |
+        echo "::group::Downloading and caching conda environment"
         url="${{ inputs.conda_env_url }}?download=1"
-        wget --progress=dot:giga ${url} -O env.tar.gz
+        mkdir -p ~/download_conda_env
+        time wget --progress=dot:giga ${url} -O ~/download_conda_env/env.tar.gz
         status=$?
         if [ $status -gt 0 ]; then
             echo "Cannot download from ${url}. Exit code: ${status}"
             exit $status
         fi
-        echo "${{ inputs.conda_env_md5 }} env.tar.gz" > checksum.txt
+        echo "::endgroup::"
+
+    - name: Create a conda env from downloaded file or cache
+      shell: bash -leo pipefail {0}
+      run: |
+        echo "${{ inputs.conda_env_md5 }} $HOME/download_conda_env/env.tar.gz" > checksum.txt
         md5sum --check checksum.txt
         mkdir -p $HOME/env
         echo "Unarchiving the tarball..."
-        tar -xf env.tar.gz -C $HOME/env
+        tar -xf ~/download_conda_env/env.tar.gz -C $HOME/env
         conda activate $HOME/env
         conda-unpack
         # TODO: release in conda-forge and add it to the standard conda env:
