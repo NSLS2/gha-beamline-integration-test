@@ -7,6 +7,11 @@ inputs:
   conda_env_md5:
     description: 'MD5 checksum of the conda environment'
     required: true
+  conda_pack_env_tarball:
+    description: 'Use a locally built conda environment tarball'
+    required: false
+    default: ''
+    type: string
   org:
     required: true
     description: 'beamline github org'
@@ -155,15 +160,20 @@ runs:
         conda-remove-defaults: true
 
     - name: Parse Conda Environment Version
+      if: inputs.conda_pack_env_tarball == ''
       id: parse-conda-env-version
       shell: bash -leo pipefail {0}
       run: |
         echo "::group::Parsing conda version"
         conda_env_version=$(echo "${{ inputs.conda_env_url }}" | sed -E 's|^.*/||; s|\.tar\.gz$||' )
         echo "CONDA_ENV_VERSION=${conda_env_version}" >> $GITHUB_ENV
+
+        echo "inputs.conda_pack_env_tarball=XXX-${{ inputs.conda_pack_env_tarball }}-XXX"
+
         echo "::endgroup::"
 
     - name: Cache Conda Environment
+      if: inputs.conda_pack_env_tarball == ''
       id : cache-conda
       uses: actions/cache@v4
       with:
@@ -171,7 +181,7 @@ runs:
         key: ${{ runner.os }}-${{ env.CONDA_ENV_VERSION }}-${{ inputs.conda_env_md5 }}
 
     - name: Download and Cache Conda env from Zenodo
-      if: steps.cache-conda.outputs.cache-hit != 'true'
+      if: steps.cache-conda.outputs.cache-hit != 'true' && inputs.conda_pack_env_tarball == ''
       shell: bash -leo pipefail {0}
       run: |
         echo "::group::Downloading and caching conda environment"
@@ -183,6 +193,14 @@ runs:
             echo "Cannot download from ${url}. Exit code: ${status}"
             exit $status
         fi
+        echo "::endgroup::"
+
+    - name: Copy conda env from local path
+      if: inputs.conda_pack_env_tarball != ''
+      shell: bash -leo pipefail {0}
+      run: |
+        echo "::group::Copying conda environment from local path"
+        cp -v "${{ inputs.conda_pack_env_tarball }}" ~/download_conda_env/env.tar.gz
         echo "::endgroup::"
 
     - name: Create a conda env from downloaded file or cache
