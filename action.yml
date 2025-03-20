@@ -167,9 +167,6 @@ runs:
         echo "::group::Parsing conda version"
         conda_env_version=$(echo "${{ inputs.conda_env_url }}" | sed -E 's|^.*/||; s|\.tar\.gz$||' )
         echo "CONDA_ENV_VERSION=${conda_env_version}" >> $GITHUB_ENV
-
-        echo "inputs.conda_pack_env_tarball=XXX-${{ inputs.conda_pack_env_tarball }}-XXX"
-
         echo "::endgroup::"
 
     - name: Cache Conda Environment
@@ -200,6 +197,7 @@ runs:
       shell: bash -leo pipefail {0}
       run: |
         echo "::group::Copying conda environment from local path"
+        mkdir -p ~/download_conda_env
         cp -v "${{ inputs.conda_pack_env_tarball }}" ~/download_conda_env/env.tar.gz
         echo "::endgroup::"
 
@@ -344,10 +342,10 @@ runs:
         python3 -c "$command"
         echo "::endgroup::"
 
-    - name: Activate IPython Profile and test the code
+    - name: Activate IPython profile and run tests
       shell: bash -leo pipefail {0}
       run: |
-        echo "::group::Setting up display and running tests"
+        echo "::group::Activating IPython profile and running tests..."
         conda activate $HOME/env
 
         cd "$HOME/${{ inputs.repo }}"
