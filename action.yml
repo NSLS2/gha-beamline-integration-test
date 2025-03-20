@@ -35,6 +35,28 @@ runs:
         git clone -b ${{ inputs.branch }} "${REPO_URL}" "$HOME/${{ inputs.repo }}"
         echo "::endgroup::"
 
+    - name: Check if LICENSE file exists
+      shell: bash -leo pipefail {0}
+      run: |
+        echo "::group::Checking for LICENSE file"
+        if [ ! -f "$HOME/${{ inputs.repo }}/LICENSE" ]; then
+            echo "LICENSE file not found in $HOME/${{ inputs.repo }}. Exiting..."
+            exit 1
+        else
+            cat "$HOME/${{ inputs.repo }}/LICENSE"
+        fi
+        echo "::endgroup::"
+
+    - name: Check if LICENSE has BNL
+      shell: bash -leo pipefail {0}
+      run: |
+        echo "::group::Checking for BNL in LICENSE file"
+        if ! grep -q "Brookhaven National Laboratory" "$HOME/${{ inputs.repo }}/LICENSE"; then
+            echo "LICENSE file does not contain 'Brookhaven National Laboratory'. Exiting..."
+            exit 1
+        fi
+        echo "::endgroup::"
+
     - name: Set Up Python
       uses: actions/setup-python@v5
       with:
@@ -144,7 +166,7 @@ runs:
     - name: Cache Conda Environment
       id : cache-conda
       uses: actions/cache@v4
-      with: 
+      with:
         path: ~/download_conda_env
         key: ${{ runner.os }}-${{ env.CONDA_ENV_VERSION }}-${{ inputs.conda_env_md5 }}
 
@@ -315,7 +337,7 @@ runs:
         # Start Xvfb
         /sbin/start-stop-daemon --start --quiet --pidfile /tmp/custom_xvfb_99.pid --make-pidfile --background --exec /usr/bin/Xvfb -- :99 -ac -screen 0 1280x1024x16
         export DISPLAY=:99
-        
+
         command="
         import os
         import glob
