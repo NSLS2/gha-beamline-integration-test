@@ -28,10 +28,8 @@ runs:
   using: 'composite'
 
   steps:
-    - name: Checkout repository
-      uses: actions/checkout@v4
-
     - name: Cloning Remote Repositories
+      if: inputs.branch != ''
       env:
         REPO_URL: "https://github.com/${{ inputs.org }}/${{ inputs.repo }}"
       shell: bash -leo pipefail {0}
