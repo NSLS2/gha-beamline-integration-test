@@ -7,6 +7,11 @@ inputs:
   conda_env_md5:
     description: 'MD5 checksum of the conda environment'
     required: true
+  conda_pack_env_tarball:
+    description: 'Use a locally built conda environment tarball'
+    required: false
+    default: ''
+    type: string
   org:
     required: true
     description: 'beamline github org'
@@ -23,27 +28,43 @@ runs:
   using: 'composite'
 
   steps:
-    - name: Checkout repository
-      uses: actions/checkout@v4
+    - name: Env vars for locally clonned repo
+      if: inputs.branch != ''
+      shell: bash -leo pipefail {0}
+      run: |
+        echo "::group::Setting up environment variables for locally clonned repo"
+        export CLONNED_REPO="$HOME/${{ inputs.repo }}"
+        echo "CLONNED_REPO=${CLONNED_REPO}" >> $GITHUB_ENV
+        echo "::endgroup::"
 
-    - name: Cloning Remote Repositories
+    - name: Cloning remote repository
+      if: inputs.branch != ''
       env:
         REPO_URL: "https://github.com/${{ inputs.org }}/${{ inputs.repo }}"
       shell: bash -leo pipefail {0}
       run: |
         echo "::group::Cloning repository"
-        git clone -b ${{ inputs.branch }} "${REPO_URL}" "$HOME/${{ inputs.repo }}"
+        git clone -b ${{ inputs.branch }} "${REPO_URL}" ${CLONNED_REPO}
+        echo "::endgroup::"
+
+    - name: Env vars for externally clonned repo
+      if: inputs.branch == ''
+      shell: bash -leo pipefail {0}
+      run: |
+        echo "::group::Setting up environment variables for externally clonned repo"
+        export CLONNED_REPO="$GITHUB_WORKSPACE"
+        echo "CLONNED_REPO=${CLONNED_REPO}" >> $GITHUB_ENV
         echo "::endgroup::"
 
     - name: Check if LICENSE file exists
       shell: bash -leo pipefail {0}
       run: |
         echo "::group::Checking for LICENSE file"
-        if [ ! -f "$HOME/${{ inputs.repo }}/LICENSE" ]; then
-            echo "LICENSE file not found in $HOME/${{ inputs.repo }}. Exiting..."
+        if [ ! -f "${CLONNED_REPO}/LICENSE" ]; then
+            echo "LICENSE file not found in ${CLONNED_REPO}. Exiting..."
             exit 1
         else
-            cat "$HOME/${{ inputs.repo }}/LICENSE"
+            cat "${CLONNED_REPO}/LICENSE"
         fi
         echo "::endgroup::"
 
@@ -51,7 +72,7 @@ runs:
       shell: bash -leo pipefail {0}
       run: |
         echo "::group::Checking for BNL in LICENSE file"
-        if ! grep -q "Brookhaven National Laboratory" "$HOME/${{ inputs.repo }}/LICENSE"; then
+        if ! grep -q "Brookhaven National Laboratory" "${CLONNED_REPO}/LICENSE"; then
             echo "LICENSE file does not contain 'Brookhaven National Laboratory'. Exiting..."
             exit 1
         fi
@@ -95,7 +116,7 @@ runs:
 
         mkdir -v -p $HOME/.ipython/
         # Copy the entire "startup" directory to the test profile.
-        cp -rv "$HOME/${{ inputs.repo }}" $HOME/.ipython/profile_test
+        cp -rv "${CLONNED_REPO}" $HOME/.ipython/profile_test
         # Remove the top-level .py files as they will be loaded separately from
         # profile_collection/startup dir. That allows proper capturing of the
         # exit code in case IPython startup files have issues.
@@ -155,6 +176,7 @@ runs:
         conda-remove-defaults: true
 
     - name: Parse Conda Environment Version
+      if: inputs.conda_pack_env_tarball == ''
       id: parse-conda-env-version
       shell: bash -leo pipefail {0}
       run: |
@@ -164,6 +186,7 @@ runs:
         echo "::endgroup::"
 
     - name: Cache Conda Environment
+      if: inputs.conda_pack_env_tarball == ''
       id : cache-conda
       uses: actions/cache@v4
       with:
@@ -171,7 +194,7 @@ runs:
         key: ${{ runner.os }}-${{ env.CONDA_ENV_VERSION }}-${{ inputs.conda_env_md5 }}
 
     - name: Download and Cache Conda env from Zenodo
-      if: steps.cache-conda.outputs.cache-hit != 'true'
+      if: steps.cache-conda.outputs.cache-hit != 'true' && inputs.conda_pack_env_tarball == ''
       shell: bash -leo pipefail {0}
       run: |
         echo "::group::Downloading and caching conda environment"
@@ -183,6 +206,15 @@ runs:
             echo "Cannot download from ${url}. Exit code: ${status}"
             exit $status
         fi
+        echo "::endgroup::"
+
+    - name: Copy conda env from local path
+      if: inputs.conda_pack_env_tarball != ''
+      shell: bash -leo pipefail {0}
+      run: |
+        echo "::group::Copying conda environment from local path"
+        mkdir -p ~/download_conda_env
+        cp -v "${{ inputs.conda_pack_env_tarball }}" ~/download_conda_env/env.tar.gz
         echo "::endgroup::"
 
     - name: Create a conda env from downloaded file or cache
@@ -326,13 +358,13 @@ runs:
         python3 -c "$command"
         echo "::endgroup::"
 
-    - name: Activate IPython Profile and test the code
+    - name: Activate IPython profile and run tests
       shell: bash -leo pipefail {0}
       run: |
-        echo "::group::Setting up display and running tests"
+        echo "::group::Activating IPython profile and running tests..."
         conda activate $HOME/env
 
-        cd "$HOME/${{ inputs.repo }}"
+        cd "${CLONNED_REPO}"
 
         # Start Xvfb
         /sbin/start-stop-daemon --start --quiet --pidfile /tmp/custom_xvfb_99.pid --make-pidfile --background --exec /usr/bin/Xvfb -- :99 -ac -screen 0 1280x1024x16
