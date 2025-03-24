@@ -167,6 +167,22 @@ runs:
         sudo ln -svf caproto-repeater "/bin/caRepeater"
         echo "::endgroup::"
 
+    - name: Apply auto settings
+      shell: bash -leo pipefail {0}
+      run: |
+        echo "::group::Applying auto settings"
+        if [ -f "${CLONNED_REPO}/.ci/auto_settings.sav" ]; then
+          while IFS= read -r line; do
+            if [ -n "$line" ]; then
+                echo "Applying $line"
+                caput $line
+            fi
+          done < "${CLONNED_REPO}/.ci/auto_settings.sav"
+        else
+          echo "No auto settings script found in ${CLONNED_REPO}/.ci/auto_settings.sh"
+        fi
+        echo "::endgroup::"
+
     - uses: conda-incubator/setup-miniconda@v3
       with:
         activate-environment: test-env
