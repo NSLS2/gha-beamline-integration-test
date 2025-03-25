@@ -93,6 +93,8 @@ class BlackholeIOC(PVGroup):
             return ChannelInteger(value=0)
         elif 'Compression' in key:
             return ChannelEnum(value=0, enum_strings=['None', 'N-bit', 'szip', 'zlib', 'blosc'])
+        elif key.endswith(".EGU"):
+            return ChannelString(value="mm")
         return ChannelDouble(value=0.0)
 
 
