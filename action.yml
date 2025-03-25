@@ -301,7 +301,7 @@ runs:
       run: |
         echo "::group::Setting up DNS entries"
         # Per https://stackoverflow.com/a/66982842:
-        sudo echo "127.0.0.1 info.cms.nsls2.bnl.gov" | sudo tee -a /etc/hosts
+        sudo echo "127.0.0.1 info.${{ inputs.beamline-acronym }}.nsls2.bnl.gov" | sudo tee -a /etc/hosts
         for i in {1..3}; do
             sudo echo "127.0.0.1 mongo${i}.nsls2.bnl.gov" | sudo tee -a /etc/hosts
         done
@@ -309,10 +309,10 @@ runs:
         echo "::endgroup::"
 
         echo "::group::Testing connections"
-        echo "Pinging info.cms.nsls2.bnl.gov..."
-        ping -c 5 info.cms.nsls2.bnl.gov
-        echo "Telnetting to info.cms.nsls2.bnl.gov:6379..."
-        echo "" | telnet info.cms.nsls2.bnl.gov 6379
+        echo "Pinging info.${{ inputs.beamline-acronym }}.nsls2.bnl.gov..."
+        ping -c 5 info.${{ inputs.beamline-acronym }}.nsls2.bnl.gov
+        echo "Telnetting to info.${{ inputs.beamline-acronym }}.nsls2.bnl.gov:6379..."
+        echo "" | telnet info.${{ inputs.beamline-acronym }}.nsls2.bnl.gov 6379
         for i in {1..3}; do
             echo "Pinging mongo${i}.nsls2.bnl.gov..."
             ping -c 5 mongo${i}.nsls2.bnl.gov
