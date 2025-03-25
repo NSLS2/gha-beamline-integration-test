@@ -324,6 +324,7 @@ runs:
     - name: Insert reasonable values for cycle and data session to redis
       shell: bash -leo pipefail {0}
       run: |
+        sudo apt install redis-tools
         redis-cli -h info.${{ inputs.beamline-acronym }}.nsls2.bnl.gov set "cycle" "\"2025-2\""
         redis-cli -h info.${{ inputs.beamline-acronym }}.nsls2.bnl.gov set "data_session" "\"pass-000000\""
 
