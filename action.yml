@@ -28,6 +28,9 @@ runs:
   using: 'composite'
 
   steps:
+    - name: Checkout
+      uses: actions/checkout@v4
+
     - name: Env vars for locally cloned repo
       if: inputs.branch != ''
       shell: bash -leo pipefail {0}
@@ -162,7 +165,7 @@ runs:
       run: |
         echo "::group::Setting up Blackhole IOC"
         python3 -m pip install -U caproto
-        echo "\n" | python3 spoof_beamline.py &
+        echo "\n" | python3 ${{ github.action_path }}/spoof_beamline.py &
         trap 'kill -SIGINT %1; echo exiting...' EXIT
         sudo ln -svf caproto-repeater "/bin/caRepeater"
         echo "::endgroup::"
