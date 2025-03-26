@@ -171,15 +171,15 @@ runs:
       shell: bash -leo pipefail {0}
       run: |
         echo "::group::Applying auto settings"
-        if [ -f "${CLONNED_REPO}/.ci/auto_settings.sav" ]; then
+        if [ -f "${CLONED_REPO}/.ci/auto_settings.sav" ]; then
           while IFS= read -r line; do
             if [ -n "$line" ]; then
                 echo "Applying $line"
                 caput $line
             fi
-          done < "${CLONNED_REPO}/.ci/auto_settings.sav"
+          done < "${CLONED_REPO}/.ci/auto_settings.sav"
         else
-          echo "No auto settings script found in ${CLONNED_REPO}/.ci/auto_settings.sh"
+          echo "No auto settings script found in ${CLONED_REPO}/.ci/auto_settings.sav"
         fi
         echo "::endgroup::"
 
