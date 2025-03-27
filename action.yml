@@ -151,6 +151,9 @@ runs:
 
         export BLUESKY_KAFKA_BOOTSTRAP_SERVERS="localhost:9092"
         echo "BLUESKY_KAFKA_BOOTSTRAP_SERVERS=${BLUESKY_KAFKA_BOOTSTRAP_SERVERS}" >> $GITHUB_ENV
+        export BLUESKY_KAFKA_PASSWORD="test"
+        echo "BLUESKY_KAFKA_PASSWORD=${BLUESKY_KAFKA_PASSWORD}" >> $GITHUB_ENV
+
         echo "::endgroup::"
 
     - name: EPICS env vars
