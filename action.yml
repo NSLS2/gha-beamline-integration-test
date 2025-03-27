@@ -128,9 +128,11 @@ runs:
       shell: bash -leo pipefail {0}
       run: |
         echo "::group::Setting up beamline-specific environment variables"
+        export BEAMLINE_ACRONYM="${${{ inputs.beamline-acronym }},,}"  # lowercase it
+        echo "BEAMLINE_ACRONYM=${BEAMLINE_ACRONYM}" >> $GITHUB_ENV
 
-        echo "BEAMLINE_ACRONYM=${BEAMLINE_ACRONYM,,}" >> $GITHUB_ENV  # lowercase it
-        echo "BEAMLINE_ACRONYM_UPPER=${BEAMLINE_ACRONYM^^}" >> $GITHUB_ENV  # uppercase it
+        export BEAMLINE_ACRONYM_UPPER="${BEAMLINE_ACRONYM^^}"  # uppercase it
+        echo "BEAMLINE_ACRONYM_UPPER=${BEAMLINE_ACRONYM_UPPER}" >> $GITHUB_ENV
 
         echo "TILED_BLUESKY_WRITING_API_KEY_${BEAMLINE_ACRONYM_UPPER}=secret" >> $GITHUB_ENV
 
