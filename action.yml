@@ -128,7 +128,8 @@ runs:
       shell: bash -leo pipefail {0}
       run: |
         echo "::group::Setting up beamline-specific environment variables"
-        export BEAMLINE_ACRONYM="${${{ inputs.beamline-acronym }},,}"  # lowercase it
+        beamline_acronym="${{ inputs.beamline-acronym }}"
+        export BEAMLINE_ACRONYM="${beamline_acronym,,}"  # lowercase it
         echo "BEAMLINE_ACRONYM=${BEAMLINE_ACRONYM}" >> $GITHUB_ENV
 
         export BEAMLINE_ACRONYM_UPPER="${BEAMLINE_ACRONYM^^}"  # uppercase it
