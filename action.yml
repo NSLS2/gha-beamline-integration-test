@@ -167,22 +167,6 @@ runs:
         sudo ln -svf caproto-repeater "/bin/caRepeater"
         echo "::endgroup::"
 
-    - name: Apply auto settings
-      shell: bash -leo pipefail {0}
-      run: |
-        echo "::group::Applying auto settings"
-        if [ -f "${CLONED_REPO}/.ci/auto_settings.sav" ]; then
-          while IFS= read -r line; do
-            if [ -n "$line" ]; then
-                echo "Applying $line"
-                caput $line
-            fi
-          done < "${CLONED_REPO}/.ci/auto_settings.sav"
-        else
-          echo "No auto settings script found in ${CLONED_REPO}/.ci/auto_settings.sav"
-        fi
-        echo "::endgroup::"
-
     - uses: conda-incubator/setup-miniconda@v3
       with:
         activate-environment: test-env
@@ -372,6 +356,22 @@ runs:
         client.create_container(tla).create_container('raw', specs=['CatalogOfBluesklyRuns'])
         print(client[tla]['raw'])"
         python3 -c "$command"
+        echo "::endgroup::"
+
+    - name: Apply auto settings
+      shell: bash -leo pipefail {0}
+      run: |
+        echo "::group::Applying auto settings"
+        if [ -f "${CLONED_REPO}/.ci/auto_settings.sav" ]; then
+          while IFS= read -r line; do
+            if [ -n "$line" ]; then
+                echo "Applying $line"
+                caput $line
+            fi
+          done < "${CLONED_REPO}/.ci/auto_settings.sav"
+        else
+          echo "No auto settings script found in ${CLONED_REPO}/.ci/auto_settings.sav"
+        fi
         echo "::endgroup::"
 
     - name: Activate IPython profile and run tests
