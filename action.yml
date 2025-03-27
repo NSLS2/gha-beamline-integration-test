@@ -376,7 +376,7 @@ runs:
           while IFS= read -r line; do
             if [ -n "$line" ]; then
                 echo "Applying $line"
-                caput $line
+                caproto-put $line
             fi
           done < "${CLONED_REPO}/.ci/auto_settings.sav"
         else
