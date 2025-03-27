@@ -84,7 +84,7 @@ runs:
         fi
         echo "::endgroup::"
 
-    - name: Set Up Python
+    - name: Set up Python
       uses: actions/setup-python@v5
       with:
         python-version: 3.11
@@ -97,7 +97,33 @@ runs:
     #     # TODO: implement the config via the Python script below later:
     #     # python3 ${ACTION_PATH}/special_config.py -b "${{ inputs.beamline-acronym }}"
 
-    - name: Beamline Specific Configurations
+    - name: Beamline-specific env vars
+      shell: bash -leo pipefail {0}
+      run: |
+        echo "::group::Setting up beamline-specific environment variables"
+        beamline_acronym="${{ inputs.beamline-acronym }}"
+        export BEAMLINE_ACRONYM="${beamline_acronym,,}"  # lowercase it
+        echo "BEAMLINE_ACRONYM=${BEAMLINE_ACRONYM}" >> $GITHUB_ENV
+
+        export BEAMLINE_ACRONYM_UPPER="${BEAMLINE_ACRONYM^^}"  # uppercase it
+        echo "BEAMLINE_ACRONYM_UPPER=${BEAMLINE_ACRONYM_UPPER}" >> $GITHUB_ENV
+
+        export BEAMLINE_REDIS_PREFIX="${{ inputs.beamline-redis-prefix }}"
+        echo "BEAMLINE_REDIS_PREFIX=${BEAMLINE_REDIS_PREFIX}" >> $GITHUB_ENV
+
+        echo "TILED_BLUESKY_WRITING_API_KEY_${BEAMLINE_ACRONYM_UPPER}=secret" >> $GITHUB_ENV
+
+        echo "MONGO_USER_${BEAMLINE_ACRONYM_UPPER}=test" >> $GITHUB_ENV
+        echo "MONGO_PASSWORD_${BEAMLINE_ACRONYM_UPPER}=test" >> $GITHUB_ENV
+
+        export BLUESKY_KAFKA_BOOTSTRAP_SERVERS="localhost:9092"
+        echo "BLUESKY_KAFKA_BOOTSTRAP_SERVERS=${BLUESKY_KAFKA_BOOTSTRAP_SERVERS}" >> $GITHUB_ENV
+        export BLUESKY_KAFKA_PASSWORD="test"
+        echo "BLUESKY_KAFKA_PASSWORD=${BLUESKY_KAFKA_PASSWORD}" >> $GITHUB_ENV
+
+        echo "::endgroup::"
+
+    - name: Beamline-specific configurations
       shell: bash -leo pipefail {0}
       run: |
         echo "::group::Performing beamline-specific tasks"
@@ -129,32 +155,6 @@ runs:
         # profile_collection/startup dir. That allows proper capturing of the
         # exit code in case IPython startup files have issues.
         rm -fv ~/.ipython/profile_test/startup/*.py
-        echo "::endgroup::"
-
-    - name: Beamline-specific env vars
-      shell: bash -leo pipefail {0}
-      run: |
-        echo "::group::Setting up beamline-specific environment variables"
-        beamline_acronym="${{ inputs.beamline-acronym }}"
-        export BEAMLINE_ACRONYM="${beamline_acronym,,}"  # lowercase it
-        echo "BEAMLINE_ACRONYM=${BEAMLINE_ACRONYM}" >> $GITHUB_ENV
-
-        export BEAMLINE_ACRONYM_UPPER="${BEAMLINE_ACRONYM^^}"  # uppercase it
-        echo "BEAMLINE_ACRONYM_UPPER=${BEAMLINE_ACRONYM_UPPER}" >> $GITHUB_ENV
-
-        export BEAMLINE_REDIS_PREFIX="${{ inputs.beamline-redis-prefix }}"
-        echo "BEAMLINE_REDIS_PREFIX=${BEAMLINE_REDIS_PREFIX}" >> $GITHUB_ENV
-
-        echo "TILED_BLUESKY_WRITING_API_KEY_${BEAMLINE_ACRONYM_UPPER}=secret" >> $GITHUB_ENV
-
-        echo "MONGO_USER_${BEAMLINE_ACRONYM_UPPER}=test" >> $GITHUB_ENV
-        echo "MONGO_PASSWORD_${BEAMLINE_ACRONYM_UPPER}=test" >> $GITHUB_ENV
-
-        export BLUESKY_KAFKA_BOOTSTRAP_SERVERS="localhost:9092"
-        echo "BLUESKY_KAFKA_BOOTSTRAP_SERVERS=${BLUESKY_KAFKA_BOOTSTRAP_SERVERS}" >> $GITHUB_ENV
-        export BLUESKY_KAFKA_PASSWORD="test"
-        echo "BLUESKY_KAFKA_PASSWORD=${BLUESKY_KAFKA_PASSWORD}" >> $GITHUB_ENV
-
         echo "::endgroup::"
 
     - name: EPICS env vars
