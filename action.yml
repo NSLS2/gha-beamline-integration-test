@@ -326,8 +326,8 @@ runs:
       shell: bash -leo pipefail {0}
       run: |
         sudo apt install redis-tools
-        redis-cli -h ${BEAMLINE_REDIS_ADDRESS} set "cycle" "\"${BEAMLINE_REDIS_PREFIX}2025-2\""
-        redis-cli -h ${BEAMLINE_REDIS_ADDRESS} set "data_session" "\"${BEAMLINE_REDIS_PREFIX}pass-000000\""
+        redis-cli -h ${BEAMLINE_REDIS_ADDRESS} set "${BEAMLINE_REDIS_PREFIX}cycle" "\"2025-2\""
+        redis-cli -h ${BEAMLINE_REDIS_ADDRESS} set "${BEAMLINE_REDIS_PREFIX}data_session" "\"pass-000000\""
 
     - name: Create nsls2 tiled profile
       shell: bash -leo pipefail {0}
