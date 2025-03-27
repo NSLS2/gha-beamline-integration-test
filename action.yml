@@ -28,13 +28,16 @@ runs:
   using: 'composite'
 
   steps:
-    - name: Env vars for locally clonned repo
+    - name: Checkout
+      uses: actions/checkout@v4
+
+    - name: Env vars for locally cloned repo
       if: inputs.branch != ''
       shell: bash -leo pipefail {0}
       run: |
-        echo "::group::Setting up environment variables for locally clonned repo"
-        export CLONNED_REPO="$HOME/${{ inputs.repo }}"
-        echo "CLONNED_REPO=${CLONNED_REPO}" >> $GITHUB_ENV
+        echo "::group::Setting up environment variables for locally cloned repo"
+        export CLONED_REPO="$HOME/${{ inputs.repo }}"
+        echo "CLONED_REPO=${CLONED_REPO}" >> $GITHUB_ENV
         echo "::endgroup::"
 
     - name: Cloning remote repository
@@ -44,27 +47,27 @@ runs:
       shell: bash -leo pipefail {0}
       run: |
         echo "::group::Cloning repository"
-        git clone -b ${{ inputs.branch }} "${REPO_URL}" ${CLONNED_REPO}
+        git clone -b ${{ inputs.branch }} "${REPO_URL}" ${CLONED_REPO}
         echo "::endgroup::"
 
-    - name: Env vars for externally clonned repo
+    - name: Env vars for externally cloned repo
       if: inputs.branch == ''
       shell: bash -leo pipefail {0}
       run: |
-        echo "::group::Setting up environment variables for externally clonned repo"
-        export CLONNED_REPO="$GITHUB_WORKSPACE"
-        echo "CLONNED_REPO=${CLONNED_REPO}" >> $GITHUB_ENV
+        echo "::group::Setting up environment variables for externally cloned repo"
+        export CLONED_REPO="$GITHUB_WORKSPACE"
+        echo "CLONED_REPO=${CLONED_REPO}" >> $GITHUB_ENV
         echo "::endgroup::"
 
     - name: Check if LICENSE file exists
       shell: bash -leo pipefail {0}
       run: |
         echo "::group::Checking for LICENSE file"
-        if [ ! -f "${CLONNED_REPO}/LICENSE" ]; then
-            echo "LICENSE file not found in ${CLONNED_REPO}. Exiting..."
+        if [ ! -f "${CLONED_REPO}/LICENSE" ]; then
+            echo "LICENSE file not found in ${CLONED_REPO}. Exiting..."
             exit 1
         else
-            cat "${CLONNED_REPO}/LICENSE"
+            cat "${CLONED_REPO}/LICENSE"
         fi
         echo "::endgroup::"
 
@@ -72,7 +75,7 @@ runs:
       shell: bash -leo pipefail {0}
       run: |
         echo "::group::Checking for BNL in LICENSE file"
-        if ! grep -q "Brookhaven National Laboratory" "${CLONNED_REPO}/LICENSE"; then
+        if ! grep -q "Brookhaven National Laboratory" "${CLONED_REPO}/LICENSE"; then
             echo "LICENSE file does not contain 'Brookhaven National Laboratory'. Exiting..."
             exit 1
         fi
@@ -116,7 +119,7 @@ runs:
 
         mkdir -v -p $HOME/.ipython/
         # Copy the entire "startup" directory to the test profile.
-        cp -rv "${CLONNED_REPO}" $HOME/.ipython/profile_test
+        cp -rv "${CLONED_REPO}" $HOME/.ipython/profile_test
         # Remove the top-level .py files as they will be loaded separately from
         # profile_collection/startup dir. That allows proper capturing of the
         # exit code in case IPython startup files have issues.
@@ -162,7 +165,7 @@ runs:
       run: |
         echo "::group::Setting up Blackhole IOC"
         python3 -m pip install -U caproto
-        echo "\n" | python3 -m caproto.ioc_examples.pathological.spoof_beamline &
+        echo "\n" | python3 ${{ github.action_path }}/spoof_beamline.py &
         trap 'kill -SIGINT %1; echo exiting...' EXIT
         sudo ln -svf caproto-repeater "/bin/caRepeater"
         echo "::endgroup::"
@@ -301,7 +304,7 @@ runs:
       run: |
         echo "::group::Setting up DNS entries"
         # Per https://stackoverflow.com/a/66982842:
-        sudo echo "127.0.0.1 info.cms.nsls2.bnl.gov" | sudo tee -a /etc/hosts
+        sudo echo "127.0.0.1 info.${{ inputs.beamline-acronym }}.nsls2.bnl.gov" | sudo tee -a /etc/hosts
         for i in {1..3}; do
             sudo echo "127.0.0.1 mongo${i}.nsls2.bnl.gov" | sudo tee -a /etc/hosts
         done
@@ -309,10 +312,10 @@ runs:
         echo "::endgroup::"
 
         echo "::group::Testing connections"
-        echo "Pinging info.cms.nsls2.bnl.gov..."
-        ping -c 5 info.cms.nsls2.bnl.gov
-        echo "Telnetting to info.cms.nsls2.bnl.gov:6379..."
-        echo "" | telnet info.cms.nsls2.bnl.gov 6379
+        echo "Pinging info.${{ inputs.beamline-acronym }}.nsls2.bnl.gov..."
+        ping -c 5 info.${{ inputs.beamline-acronym }}.nsls2.bnl.gov
+        echo "Telnetting to info.${{ inputs.beamline-acronym }}.nsls2.bnl.gov:6379..."
+        echo "" | telnet info.${{ inputs.beamline-acronym }}.nsls2.bnl.gov 6379
         for i in {1..3}; do
             echo "Pinging mongo${i}.nsls2.bnl.gov..."
             ping -c 5 mongo${i}.nsls2.bnl.gov
@@ -320,6 +323,13 @@ runs:
             echo "" | telnet mongo${i}.nsls2.bnl.gov 27017
         done
         echo "::endgroup::"
+
+    - name: Insert reasonable values for cycle and data session to redis
+      shell: bash -leo pipefail {0}
+      run: |
+        sudo apt install redis-tools
+        redis-cli -h info.${{ inputs.beamline-acronym }}.nsls2.bnl.gov set "cycle" "\"2025-2\""
+        redis-cli -h info.${{ inputs.beamline-acronym }}.nsls2.bnl.gov set "data_session" "\"pass-000000\""
 
     - name: Create nsls2 tiled profile
       shell: bash -leo pipefail {0}
@@ -380,7 +390,7 @@ runs:
         echo "::group::Activating IPython profile and running tests..."
         conda activate $HOME/env
 
-        cd "${CLONNED_REPO}"
+        cd "${CLONED_REPO}"
 
         # Start Xvfb
         /sbin/start-stop-daemon --start --quiet --pidfile /tmp/custom_xvfb_99.pid --make-pidfile --background --exec /usr/bin/Xvfb -- :99 -ac -screen 0 1280x1024x16
