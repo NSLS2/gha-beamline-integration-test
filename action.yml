@@ -11,7 +11,6 @@ inputs:
     description: 'Use a locally built conda environment tarball'
     required: false
     default: ''
-    type: string
   org:
     required: true
     description: 'beamline github org'
@@ -24,6 +23,10 @@ inputs:
   beamline-acronym:
     required: true
     description: 'beamline tla'
+  beamline-redis-prefix:
+    required: false
+    description: 'beamline redis prefix'
+    default: ''
 runs:
   using: 'composite'
 
@@ -81,7 +84,7 @@ runs:
         fi
         echo "::endgroup::"
 
-    - name: Set Up Python
+    - name: Set up Python
       uses: actions/setup-python@v5
       with:
         python-version: 3.11
@@ -94,9 +97,33 @@ runs:
     #     # TODO: implement the config via the Python script below later:
     #     # python3 ${ACTION_PATH}/special_config.py -b "${{ inputs.beamline-acronym }}"
 
-    - name: Beamline Specific Configurations
-      env:
-        BEAMLINE_ACRONYM: ${{ inputs.beamline-acronym }}
+    - name: Beamline-specific env vars
+      shell: bash -leo pipefail {0}
+      run: |
+        echo "::group::Setting up beamline-specific environment variables"
+        beamline_acronym="${{ inputs.beamline-acronym }}"
+        export BEAMLINE_ACRONYM="${beamline_acronym,,}"  # lowercase it
+        echo "BEAMLINE_ACRONYM=${BEAMLINE_ACRONYM}" >> $GITHUB_ENV
+
+        export BEAMLINE_ACRONYM_UPPER="${BEAMLINE_ACRONYM^^}"  # uppercase it
+        echo "BEAMLINE_ACRONYM_UPPER=${BEAMLINE_ACRONYM_UPPER}" >> $GITHUB_ENV
+
+        export BEAMLINE_REDIS_PREFIX="${{ inputs.beamline-redis-prefix }}"
+        echo "BEAMLINE_REDIS_PREFIX=${BEAMLINE_REDIS_PREFIX}" >> $GITHUB_ENV
+
+        echo "TILED_BLUESKY_WRITING_API_KEY_${BEAMLINE_ACRONYM_UPPER}=secret" >> $GITHUB_ENV
+
+        echo "MONGO_USER_${BEAMLINE_ACRONYM_UPPER}=test" >> $GITHUB_ENV
+        echo "MONGO_PASSWORD_${BEAMLINE_ACRONYM_UPPER}=test" >> $GITHUB_ENV
+
+        export BLUESKY_KAFKA_BOOTSTRAP_SERVERS="localhost:9092"
+        echo "BLUESKY_KAFKA_BOOTSTRAP_SERVERS=${BLUESKY_KAFKA_BOOTSTRAP_SERVERS}" >> $GITHUB_ENV
+        export BLUESKY_KAFKA_PASSWORD="test"
+        echo "BLUESKY_KAFKA_PASSWORD=${BLUESKY_KAFKA_PASSWORD}" >> $GITHUB_ENV
+
+        echo "::endgroup::"
+
+    - name: Beamline-specific configurations
       shell: bash -leo pipefail {0}
       run: |
         echo "::group::Performing beamline-specific tasks"
@@ -105,13 +132,17 @@ runs:
         mkdir -v -p /nsls2/data/${BEAMLINE_ACRONYM}/shared/config/RE-metadata
         mkdir -v -p /nsls2/data/${BEAMLINE_ACRONYM}-new  # e.g., fxi-new
 
-        # TODO: fix SRX hardcoded paths.
+        # TODO: fix SRX and HXN hardcoded paths.
+        export LOGS_HOME="$HOME"
         if [ "${BEAMLINE_ACRONYM}" == "srx" ]; then
             export LOGS_HOME="/home/xf05id1"
             sudo mkdir -v -p /home/xf05id1/
             sudo chown -v $USER: /home/xf05id1/
-        else
-            export LOGS_HOME="$HOME"
+        elif [ "${BEAMLINE_ACRONYM}" == "hxn" ]; then
+            sudo mkdir -v -p /home/xf03id/
+            sudo chown -v $USER: /home/xf03id/
+            mkdir -v -p /home/xf03id/logs/
+            touch /home/xf03id/benchmark.out
         fi
         echo "LOGS_HOME=${LOGS_HOME}" >> $GITHUB_ENV
 
@@ -124,29 +155,6 @@ runs:
         # profile_collection/startup dir. That allows proper capturing of the
         # exit code in case IPython startup files have issues.
         rm -fv ~/.ipython/profile_test/startup/*.py
-        echo "::endgroup::"
-
-    - name: Beamline-specific env vars
-      shell: bash -leo pipefail {0}
-      run: |
-        echo "::group::Setting up beamline-specific environment variables"
-        export TILED_BLUESKY_WRITING_API_KEY_BMM="secret"
-        echo "TILED_BLUESKY_WRITING_API_KEY_BMM=${TILED_BLUESKY_WRITING_API_KEY_BMM}" >> $GITHUB_ENV
-
-        export TILED_BLUESKY_WRITING_API_KEY_TES="secret"
-        echo "TILED_BLUESKY_WRITING_API_KEY_TES=${TILED_BLUESKY_WRITING_API_KEY_TES}" >> $GITHUB_ENV
-
-        export TILED_BLUESKY_WRITING_API_KEY_SRX="secret"
-        echo "TILED_BLUESKY_WRITING_API_KEY_SRX=${TILED_BLUESKY_WRITING_API_KEY_SRX}" >> $GITHUB_ENV
-
-        export TILED_BLUESKY_WRITING_API_KEY_HEX="secret"
-        echo "TILED_BLUESKY_WRITING_API_KEY_HEX=${TILED_BLUESKY_WRITING_API_KEY_HEX}" >> $GITHUB_ENV
-
-        export MONGO_USER_CHX="test"
-        echo "MONGO_USER_CHX=${MONGO_USER_CHX}" >> $GITHUB_ENV
-
-        export MONGO_PASSWORD_CHX="test"
-        echo "MONGO_PASSWORD_CHX=${MONGO_PASSWORD_CHX}" >> $GITHUB_ENV
         echo "::endgroup::"
 
     - name: EPICS env vars
@@ -235,8 +243,6 @@ runs:
         echo "::endgroup::"
 
     - name: Configuring defaults (pyOlog, databroker, and kafka)
-      env:
-        BEAMLINE_ACRONYM: ${{ inputs.beamline-acronym }}
       shell: bash -leo pipefail {0}
       run: |
         echo "::group::pyOlog configuration"
@@ -246,8 +252,7 @@ runs:
 
         echo "::group::Classic databroker v0/v1 configuration"
         databroker_conf_dir="$HOME/.config/databroker"
-        beamline_acronym="${BEAMLINE_ACRONYM,,}"
-        databroker_bl_conf="${beamline_acronym}.yml"
+        databroker_bl_conf="${BEAMLINE_ACRONYM}.yml"
         mkdir -v -p ${databroker_conf_dir}
         wget https://raw.githubusercontent.com/NSLS-II/profile-collection-ci/master/configs/databroker.yml -O ${databroker_conf_dir}/_legacy_config.yml
         cp -v ${databroker_conf_dir}/_legacy_config.yml ${databroker_conf_dir}/${databroker_bl_conf}
@@ -259,7 +264,7 @@ runs:
         tiled_profiles_dir="$HOME/.config/tiled/profiles/"
         mkdir -v -p "${tiled_profiles_dir}"
         cat << EOF > ${tiled_profiles_dir}/profiles.yml
-        ${beamline_acronym:-local}:
+        ${BEAMLINE_ACRONYM:-local}:
           direct:
             authentication:
               allow_anonymous_access: true
@@ -304,7 +309,10 @@ runs:
       run: |
         echo "::group::Setting up DNS entries"
         # Per https://stackoverflow.com/a/66982842:
-        sudo echo "127.0.0.1 info.${{ inputs.beamline-acronym }}.nsls2.bnl.gov" | sudo tee -a /etc/hosts
+        beamline_redis_address="info.${BEAMLINE_ACRONYM}.nsls2.bnl.gov"
+        export BEAMLINE_REDIS_ADDRESS="${beamline_redis_address}"
+        echo "BEAMLINE_REDIS_ADDRESS=${BEAMLINE_REDIS_ADDRESS}" >> $GITHUB_ENV
+        sudo echo "127.0.0.1 ${BEAMLINE_REDIS_ADDRESS}" | sudo tee -a /etc/hosts
         for i in {1..3}; do
             sudo echo "127.0.0.1 mongo${i}.nsls2.bnl.gov" | sudo tee -a /etc/hosts
         done
@@ -312,10 +320,10 @@ runs:
         echo "::endgroup::"
 
         echo "::group::Testing connections"
-        echo "Pinging info.${{ inputs.beamline-acronym }}.nsls2.bnl.gov..."
-        ping -c 5 info.${{ inputs.beamline-acronym }}.nsls2.bnl.gov
-        echo "Telnetting to info.${{ inputs.beamline-acronym }}.nsls2.bnl.gov:6379..."
-        echo "" | telnet info.${{ inputs.beamline-acronym }}.nsls2.bnl.gov 6379
+        echo "Pinging ${BEAMLINE_REDIS_ADDRESS}..."
+        ping -c 5 ${BEAMLINE_REDIS_ADDRESS}
+        echo "Telnetting to ${BEAMLINE_REDIS_ADDRESS}:6379..."
+        echo "" | telnet ${BEAMLINE_REDIS_ADDRESS} 6379
         for i in {1..3}; do
             echo "Pinging mongo${i}.nsls2.bnl.gov..."
             ping -c 5 mongo${i}.nsls2.bnl.gov
@@ -327,9 +335,12 @@ runs:
     - name: Insert reasonable values for cycle and data session to redis
       shell: bash -leo pipefail {0}
       run: |
+        echo "::group::Installing redis-cli and setting cycle and data session"
         sudo apt install redis-tools
-        redis-cli -h info.${{ inputs.beamline-acronym }}.nsls2.bnl.gov set "cycle" "\"2025-2\""
-        redis-cli -h info.${{ inputs.beamline-acronym }}.nsls2.bnl.gov set "data_session" "\"pass-000000\""
+        redis-cli -h ${BEAMLINE_REDIS_ADDRESS} set "${BEAMLINE_REDIS_PREFIX}cycle" "\"2025-2\""
+        redis-cli -h ${BEAMLINE_REDIS_ADDRESS} set "${BEAMLINE_REDIS_PREFIX}data_session" "\"pass-000000\""
+        redis-cli -h ${BEAMLINE_REDIS_ADDRESS} --scan
+        echo "::endgroup::"
 
     - name: Create nsls2 tiled profile
       shell: bash -leo pipefail {0}
@@ -352,15 +363,13 @@ runs:
 
     - name: Create TLA tiled profile
       shell: bash -leo pipefail {0}
-      env:
-        BEAMLINE_ACRONYM: ${{ inputs.beamline-acronym }}
       run: |
         echo "::group::Creating TLA tiled profile"
         conda activate $HOME/env
         command="
         import os
         from tiled.client import from_profile
-        tla = os.getenv('BEAMLINE_ACRONYM', 'XYZ').lower()
+        tla = os.getenv('BEAMLINE_ACRONYM', 'xyz').lower()
         TLA = tla.upper()
         client = from_profile('nsls2', api_key=os.getenv(f'TILED_BLUESKY_WRITING_API_KEY_{TLA}', 'secret'))
         client.create_container(tla).create_container('raw', specs=['CatalogOfBluesklyRuns'])
