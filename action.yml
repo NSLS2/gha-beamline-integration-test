@@ -377,6 +377,22 @@ runs:
         python3 -c "$command"
         echo "::endgroup::"
 
+    - name: Apply auto settings
+      shell: bash -leo pipefail {0}
+      run: |
+        echo "::group::Applying auto settings"
+        if [ -f "${CLONED_REPO}/.ci/auto_settings.sav" ]; then
+          while IFS= read -r line; do
+            if [ -n "$line" ]; then
+                echo "Applying $line"
+                caproto-put $line
+            fi
+          done < "${CLONED_REPO}/.ci/auto_settings.sav"
+        else
+          echo "No auto settings script found in ${CLONED_REPO}/.ci/auto_settings.sav"
+        fi
+        echo "::endgroup::"
+
     - name: Activate IPython profile and run tests
       shell: bash -leo pipefail {0}
       run: |
