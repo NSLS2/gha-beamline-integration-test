@@ -50,14 +50,14 @@ class BlackholeIOC(PVGroup):
 
     You can set up SubGroups for beamline components that interact with each other.
     """
-    def __init__(self, *args, pv_specs_file: str = 'pv_specs.yaml', **kwargs):
+    def __init__(self, *args, pv_specs_file: str | None = None, **kwargs):
         super().__init__(prefix="", *args, **kwargs)
         # Copy the original pvdb so we can use it for channels
         self.old_pvdb = self.pvdb.copy()
         # Reset the pvdb to use our fabricate_channel function
         self.pvdb = ReallyDefaultDict(self.fabricate_channel)
         # Load PV specifications from file
-        self.pv_specs = self.load_pv_specs(pv_specs_file)
+        self.pv_specs = self.load_pv_specs(pv_specs_file) if pv_specs_file else {}
 
     def load_pv_specs(self, pv_specs_file: str) -> dict[str, dict[str, Any]]:
         """Load PV specifications from YAML file."""
@@ -163,7 +163,7 @@ def main():
     parser, split_args = template_arg_parser(
         default_prefix='',
         desc="Spoof a beamline IOC with configurable PVs")
-    parser.add_argument('--pv-specs', type=str, default='pv_specs.yaml',
+    parser.add_argument('--pv-specs', type=str, default=None,
                       help='Path to YAML file containing PV specifications')
     parser.add_argument('--no-warning', action='store_true',
                       help='Skip the warning message')
