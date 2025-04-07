@@ -1,10 +1,13 @@
 #!/usr/bin/env python3
 import re
+import yaml
 from collections import defaultdict
+from pathlib import Path
+from typing import Any
 
 from caproto import (ChannelChar, ChannelData, ChannelDouble, ChannelEnum,
-                     ChannelInteger, ChannelString)
-from caproto.server import ioc_arg_parser, PVGroup, run
+                     ChannelInteger, ChannelString, ChannelNumeric)
+from caproto.server import template_arg_parser, PVGroup, run
 
 PLUGIN_TYPE_PVS = [
     (re.compile('image\\d:'), 'NDPluginStdArrays'),
@@ -47,17 +50,74 @@ class BlackholeIOC(PVGroup):
 
     You can set up SubGroups for beamline components that interact with each other.
     """
-    def __init__(self, *args, **kwargs):
+    def __init__(self, *args, pv_specs_file: str = 'pv_specs.yaml', **kwargs):
         super().__init__(prefix="", *args, **kwargs)
         # Copy the original pvdb so we can use it for channels
         self.old_pvdb = self.pvdb.copy()
         # Reset the pvdb to use our fabricate_channel function
         self.pvdb = ReallyDefaultDict(self.fabricate_channel)
+        # Load PV specifications from file
+        self.pv_specs = self.load_pv_specs(pv_specs_file)
+
+    def load_pv_specs(self, pv_specs_file: str) -> dict[str, dict[str, Any]]:
+        """Load PV specifications from YAML file."""
+        specs_file = Path(pv_specs_file)
+        if not specs_file.exists():
+            print(f"Warning: PV specifications file not found: {specs_file}")
+            return {}
+        
+        try:
+            with open(specs_file) as f:
+                data = yaml.safe_load(f)
+                return data.get('pv_specs', {})
+        except (yaml.YAMLError, IOError) as e:
+            print(f"Warning: Could not load PV specifications: {e}")
+            return {}
+
+    def create_channel_from_spec(self, spec):
+        """
+        Create a channel object from a specification dictionary.
+        
+        Args:
+            spec (dict): Dictionary containing channel specifications with keys:
+                        - type: Channel type (e.g., 'ChannelDouble', 'ChannelInteger')
+                        - value: Default value for the channel
+                        - enum_strings: (optional) List of strings for ChannelEnum type
+        
+        Returns:
+            Channel object of the specified type
+        """
+        channel_type = spec['type']
+        value = spec['value']
+        
+        if channel_type == 'ChannelDouble':
+            return ChannelDouble(value=value)
+        elif channel_type == 'ChannelInteger':
+            return ChannelInteger(value=value)
+        elif channel_type == 'ChannelString':
+            return ChannelString(value=value)
+        elif channel_type == 'ChannelEnum':
+            enum_strings = spec.get('enum_strings', [])
+            return ChannelEnum(value=value, enum_strings=enum_strings)
+        elif channel_type == 'ChannelChar':
+            return ChannelChar(value=value)
+        elif channel_type == "ChannelNumeric":
+            return ChannelNumeric(value=value)
+        elif channel_type == 'ChannelData':
+            return ChannelData(value=value)
+        else:
+            raise ValueError(f"Unknown channel type: {channel_type}")
 
     def fabricate_channel(self, key):
         # Use existing channels if they exist
         if key in self.old_pvdb:
             return self.old_pvdb[key]
+        
+        # Check if we have a specification for this PV
+        if key in self.pv_specs:
+            return self.create_channel_from_spec(self.pv_specs[key])
+        
+        # Fall back to default channel type detection
         if 'PluginType' in key:
             for pattern, val in PLUGIN_TYPE_PVS:
                 if pattern.search(key):
@@ -79,7 +139,8 @@ class BlackholeIOC(PVGroup):
         elif 'ArraySize' in key:
             return ChannelData(value=10)
         elif 'TriggerMode' in key:
-            return ChannelEnum(value=0, enum_strings=['Internal', 'External'])
+            return ChannelEnum(value=0, enum_strings=[
+                'Internal', 'External', 'Free Run', 'Sync In 1', 'Sync In 2', 'Sync In 3', 'Sync In 4', 'Fixed Rate', 'Software'])
         elif 'FileWriteMode' in key:
             return ChannelEnum(value=0, enum_strings=['Single'])
         elif 'FilePathExists' in key:
@@ -99,7 +160,19 @@ class BlackholeIOC(PVGroup):
 
 
 def main():
-    print('''
+    parser, split_args = template_arg_parser(
+        default_prefix='',
+        desc="Spoof a beamline IOC with configurable PVs")
+    parser.add_argument('--pv-specs', type=str, default='pv_specs.yaml',
+                      help='Path to YAML file containing PV specifications')
+    parser.add_argument('--no-warning', action='store_true',
+                      help='Skip the warning message')
+    args = parser.parse_args()
+    _, run_options = split_args(args)
+    run_options['interfaces'] = ['127.0.0.1']
+
+    if not args.no_warning:
+        print('''
 *** WARNING ***
 This script spawns an EPICS IOC which responds to ALL caget, caput, camonitor
 requests.  As this is effectively a PV black hole, it may affect the
@@ -112,22 +185,21 @@ user-provided value.
 
 Press return if you have acknowledged the above, or Ctrl-C to quit.''')
 
-    try:
-        input()
-    except KeyboardInterrupt:
-        print()
-        return
+        try:
+            input()
+        except KeyboardInterrupt:
+            print()
+            return
+
     print('''
 
                          PV blackhole started
 
 ''')
-    _, run_options = ioc_arg_parser(
-        default_prefix='',
-        desc="PV black hole")
-    run_options['interfaces'] = ['127.0.0.1']
-    run(BlackholeIOC().pvdb,
-        **run_options)
+    
+    # Create IOC with specified PV specs file
+    ioc = BlackholeIOC(pv_specs_file=args.pv_specs)
+    run(ioc.pvdb, **run_options)
 
 
 if __name__ == '__main__':

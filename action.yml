@@ -173,7 +173,11 @@ runs:
       run: |
         echo "::group::Setting up Blackhole IOC"
         python3 -m pip install -U caproto
-        echo "\n" | python3 ${{ github.action_path }}/spoof_beamline.py &
+        if [ -f "${CLONED_REPO}/.ci/pv-specs.yaml" ]; then
+          echo "\n" | python3 ${{ github.action_path }}/spoof_beamline.py --pv-specs "${CLONED_REPO}/.ci/pv-specs.yaml" &
+        else
+          echo "\n" | python3 ${{ github.action_path }}/spoof_beamline.py &
+        fi
         trap 'kill -SIGINT %1; echo exiting...' EXIT
         sudo ln -svf caproto-repeater "/bin/caRepeater"
         echo "::endgroup::"
