@@ -23,6 +23,9 @@ inputs:
   beamline-acronym:
     required: true
     description: 'beamline tla'
+  beamline-endstation:
+    required: false
+    description: 'beamline endstation name'
   beamline-redis-prefix:
     required: false
     description: 'beamline redis prefix'
@@ -107,6 +110,10 @@ runs:
 
         export BEAMLINE_ACRONYM_UPPER="${BEAMLINE_ACRONYM^^}"  # uppercase it
         echo "BEAMLINE_ACRONYM_UPPER=${BEAMLINE_ACRONYM_UPPER}" >> $GITHUB_ENV
+
+        beamline_endstation="${{ inputs.beamline-endstation }}"
+        export BEAMLINE_ENDSTATION="${beamline_endstation,,}" # lowercase it
+        echo "BEAMLINE_ENDSTATION=${BEAMLINE_ENDSTATION}" >> $GITHUB_ENV
 
         export BEAMLINE_REDIS_PREFIX="${{ inputs.beamline-redis-prefix }}"
         echo "BEAMLINE_REDIS_PREFIX=${BEAMLINE_REDIS_PREFIX}" >> $GITHUB_ENV
@@ -264,7 +271,7 @@ runs:
         tiled_profiles_dir="$HOME/.config/tiled/profiles/"
         mkdir -v -p "${tiled_profiles_dir}"
         cat << EOF > ${tiled_profiles_dir}/profiles.yml
-        ${BEAMLINE_ACRONYM:-local}:
+        ${BEAMLINE_ENDSTATION:-${BEAMLINE_ACRONYM:-local}}:
           direct:
             authentication:
               allow_anonymous_access: true
