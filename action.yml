@@ -162,6 +162,7 @@ runs:
         # profile_collection/startup dir. That allows proper capturing of the
         # exit code in case IPython startup files have issues.
         rm -fv ~/.ipython/profile_test/startup/*.py
+
         echo "::endgroup::"
 
     - name: EPICS env vars
@@ -247,6 +248,17 @@ runs:
         conda-unpack
         # TODO: release in conda-forge and add it to the standard conda env:
         python3 -m pip install mpl-qtthread
+        echo "::endgroup::"
+
+    - name: Run beamline specific steps
+      shell: bash -leo pipefail {0}
+      run: |
+        echo "::group::Running beamline specific steps"
+        # source the bl-specific.py file
+        if [ -f "${CLONED_REPO}/.ci/bl-specific.sh" ]; then
+            echo "Sourcing ${CLONED_REPO}/.ci/bl-specific.sh"
+            source "${CLONED_REPO}/.ci/bl-specific.sh"
+        fi
         echo "::endgroup::"
 
     - name: Configuring defaults (pyOlog, databroker, and kafka)
