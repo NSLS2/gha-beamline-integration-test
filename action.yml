@@ -195,7 +195,7 @@ runs:
         sudo ln -svf caproto-repeater "/bin/caRepeater"
         echo "::endgroup::"
 
-    - uses: conda-incubator/setup-miniconda@v3
+    - uses: conda-incubator/setup-miniconda@505e6394dae86d6a5c7fbb6e3fb8938e3e863830 # v3
       with:
         activate-environment: test-env
         auto-update-conda: true
@@ -331,12 +331,12 @@ runs:
         echo "::endgroup::"
 
     - name: Configuring Redis
-      uses: supercharge/redis-github-action@1.8.0
+      uses: supercharge/redis-github-action@ea9b21c6ecece47bd99595c532e481390ea0f044 # 1.8.0
       with:
         redis-version: latest
 
     - name: Configuring Mongo
-      uses: supercharge/mongodb-github-action@1.11.0
+      uses: supercharge/mongodb-github-action@5a87bd81f88e2a8b195f8b7b656f5cda1350815a # 1.11.0
       with:
         mongodb-version: '4.4'
 
