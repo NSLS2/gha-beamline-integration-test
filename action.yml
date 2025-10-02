@@ -376,7 +376,7 @@ runs:
         conda activate $HOME/env
         export TILED_API_KEY=secret
         echo "TILED_API_KEY=${TILED_API_KEY}" >> $GITHUB_ENV
-        nohup tiled serve catalog --temp --api-key=$TILED_API_KEY &
+        nohup tiled serve catalog --temp --api-key=$TILED_API_KEY > /tmp/tiled.log 2>&1 &
         sleep 10
         echo "::endgroup::"
 
@@ -394,6 +394,14 @@ runs:
         client.create_container(tla).create_container('raw', specs=['CatalogOfBluesklyRuns'])
         print(client[tla]['raw'])"
         python3 -c "$command"
+        echo "::endgroup::"
+
+    - name: Show logs so far
+      if: always()
+      shell: bash -leo pipefail {0}
+      run: |
+        echo "::group::Tiled server logs so far"
+        cat /tmp/tiled.log
         echo "::endgroup::"
 
     - name: Apply auto settings
