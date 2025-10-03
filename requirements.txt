@@ -1,2 +1,2 @@
-caproto>=1.1.0
+caproto>=1.1.0,!=1.2.0
 pyyaml>=6.0.1 
