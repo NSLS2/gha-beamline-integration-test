@@ -1,0 +1,12 @@
+pv_specs:
+  # The full PV name
+  "<pv-name>":
+    # The type of caproto channel to create (must subclass ChannelData)
+    type: "<ChannelData>"
+    # The default value for the channel, list or scalar
+    value: "<default-value>" 
+
+  # Example with array of doubles:
+  "XF:21IDC-OP{Mir:4A-FM}:BPM0:PosX":
+    type: ChannelDouble
+    value: [0, 0, 0]
