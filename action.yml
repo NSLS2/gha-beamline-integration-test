@@ -23,6 +23,9 @@ inputs:
   beamline-acronym:
     required: true
     description: 'beamline tla'
+  beamline-endstation:
+    required: false
+    description: 'beamline endstation name'
   beamline-redis-prefix:
     required: false
     description: 'beamline redis prefix'
@@ -33,24 +36,29 @@ runs:
   steps:
     - name: Checkout
       uses: actions/checkout@v4
+      with:
+        persist-credentials: false
 
     - name: Env vars for locally cloned repo
       if: inputs.branch != ''
       shell: bash -leo pipefail {0}
       run: |
         echo "::group::Setting up environment variables for locally cloned repo"
-        export CLONED_REPO="$HOME/${{ inputs.repo }}"
+        export CLONED_REPO="$HOME/${INPUTS_REPO}"
         echo "CLONED_REPO=${CLONED_REPO}" >> $GITHUB_ENV
         echo "::endgroup::"
+      env:
+        INPUTS_REPO: ${{ inputs.repo }}
 
     - name: Cloning remote repository
       if: inputs.branch != ''
       env:
-        REPO_URL: "https://github.com/${{ inputs.org }}/${{ inputs.repo }}"
+        REPO_URL: https://github.com/${{ inputs.org }}/${{ inputs.repo }}
+        INPUTS_BRANCH: ${{ inputs.branch }}
       shell: bash -leo pipefail {0}
       run: |
         echo "::group::Cloning repository"
-        git clone -b ${{ inputs.branch }} "${REPO_URL}" ${CLONED_REPO}
+        git clone -b ${INPUTS_BRANCH} "${REPO_URL}" ${CLONED_REPO}
         echo "::endgroup::"
 
     - name: Env vars for externally cloned repo
@@ -101,14 +109,18 @@ runs:
       shell: bash -leo pipefail {0}
       run: |
         echo "::group::Setting up beamline-specific environment variables"
-        beamline_acronym="${{ inputs.beamline-acronym }}"
+        beamline_acronym="${INPUTS_BEAMLINE_ACRONYM}"
         export BEAMLINE_ACRONYM="${beamline_acronym,,}"  # lowercase it
         echo "BEAMLINE_ACRONYM=${BEAMLINE_ACRONYM}" >> $GITHUB_ENV
 
         export BEAMLINE_ACRONYM_UPPER="${BEAMLINE_ACRONYM^^}"  # uppercase it
         echo "BEAMLINE_ACRONYM_UPPER=${BEAMLINE_ACRONYM_UPPER}" >> $GITHUB_ENV
 
-        export BEAMLINE_REDIS_PREFIX="${{ inputs.beamline-redis-prefix }}"
+        beamline_endstation="${INPUTS_BEAMLINE_ENDSTATION}"
+        export BEAMLINE_ENDSTATION="${beamline_endstation,,}" # lowercase it
+        echo "BEAMLINE_ENDSTATION=${BEAMLINE_ENDSTATION}" >> $GITHUB_ENV
+
+        export BEAMLINE_REDIS_PREFIX="${INPUTS_BEAMLINE_REDIS_PREFIX}"
         echo "BEAMLINE_REDIS_PREFIX=${BEAMLINE_REDIS_PREFIX}" >> $GITHUB_ENV
 
         echo "TILED_BLUESKY_WRITING_API_KEY_${BEAMLINE_ACRONYM_UPPER}=secret" >> $GITHUB_ENV
@@ -122,6 +134,10 @@ runs:
         echo "BLUESKY_KAFKA_PASSWORD=${BLUESKY_KAFKA_PASSWORD}" >> $GITHUB_ENV
 
         echo "::endgroup::"
+      env:
+        INPUTS_BEAMLINE_ACRONYM: ${{ inputs.beamline-acronym }}
+        INPUTS_BEAMLINE_ENDSTATION: ${{ inputs.beamline-endstation }}
+        INPUTS_BEAMLINE_REDIS_PREFIX: ${{ inputs.beamline-redis-prefix }}
 
     - name: Beamline-specific configurations
       shell: bash -leo pipefail {0}
@@ -155,6 +171,7 @@ runs:
         # profile_collection/startup dir. That allows proper capturing of the
         # exit code in case IPython startup files have issues.
         rm -fv ~/.ipython/profile_test/startup/*.py
+
         echo "::endgroup::"
 
     - name: EPICS env vars
@@ -182,7 +199,7 @@ runs:
         sudo ln -svf caproto-repeater "/bin/caRepeater"
         echo "::endgroup::"
 
-    - uses: conda-incubator/setup-miniconda@v3
+    - uses: conda-incubator/setup-miniconda@505e6394dae86d6a5c7fbb6e3fb8938e3e863830 # v3
       with:
         activate-environment: test-env
         auto-update-conda: true
@@ -196,9 +213,11 @@ runs:
       shell: bash -leo pipefail {0}
       run: |
         echo "::group::Parsing conda version"
-        conda_env_version=$(echo "${{ inputs.conda_env_url }}" | sed -E 's|^.*/||; s|\.tar\.gz$||' )
+        conda_env_version=$(echo "${INPUTS_CONDA_ENV_URL}" | sed -E 's|^.*/||; s|\.tar\.gz$||' )
         echo "CONDA_ENV_VERSION=${conda_env_version}" >> $GITHUB_ENV
         echo "::endgroup::"
+      env:
+        INPUTS_CONDA_ENV_URL: ${{ inputs.conda_env_url }}
 
     - name: Cache Conda Environment
       if: inputs.conda_pack_env_tarball == ''
@@ -213,7 +232,7 @@ runs:
       shell: bash -leo pipefail {0}
       run: |
         echo "::group::Downloading and caching conda environment"
-        url="${{ inputs.conda_env_url }}?download=1"
+        url="${INPUTS_CONDA_ENV_URL}?download=1"
         mkdir -p ~/download_conda_env
         time wget --progress=dot:giga ${url} -O ~/download_conda_env/env.tar.gz
         status=$?
@@ -222,6 +241,8 @@ runs:
             exit $status
         fi
         echo "::endgroup::"
+      env:
+        INPUTS_CONDA_ENV_URL: ${{ inputs.conda_env_url }}
 
     - name: Copy conda env from local path
       if: inputs.conda_pack_env_tarball != ''
@@ -229,13 +250,15 @@ runs:
       run: |
         echo "::group::Copying conda environment from local path"
         mkdir -p ~/download_conda_env
-        cp -v "${{ inputs.conda_pack_env_tarball }}" ~/download_conda_env/env.tar.gz
+        cp -v "${INPUTS_CONDA_PACK_ENV_TARBALL}" ~/download_conda_env/env.tar.gz
         echo "::endgroup::"
+      env:
+        INPUTS_CONDA_PACK_ENV_TARBALL: ${{ inputs.conda_pack_env_tarball }}
 
     - name: Create a conda env from downloaded file or cache
       shell: bash -leo pipefail {0}
       run: |
-        echo "${{ inputs.conda_env_md5 }} $HOME/download_conda_env/env.tar.gz" > checksum.txt
+        echo "${INPUTS_CONDA_ENV_MD5} $HOME/download_conda_env/env.tar.gz" > checksum.txt
         md5sum --check checksum.txt
         mkdir -p $HOME/env
         echo "Unarchiving the tarball..."
@@ -244,6 +267,19 @@ runs:
         conda-unpack
         # TODO: release in conda-forge and add it to the standard conda env:
         python3 -m pip install mpl-qtthread
+        echo "::endgroup::"
+      env:
+        INPUTS_CONDA_ENV_MD5: ${{ inputs.conda_env_md5 }}
+
+    - name: Run beamline specific steps
+      shell: bash -leo pipefail {0}
+      run: |
+        echo "::group::Running beamline specific steps"
+        # source the bl-specific.py file
+        if [ -f "${CLONED_REPO}/.ci/bl-specific.sh" ]; then
+            echo "Sourcing ${CLONED_REPO}/.ci/bl-specific.sh"
+            source "${CLONED_REPO}/.ci/bl-specific.sh"
+        fi
         echo "::endgroup::"
 
     - name: Configuring defaults (pyOlog, databroker, and kafka)
@@ -268,7 +304,7 @@ runs:
         tiled_profiles_dir="$HOME/.config/tiled/profiles/"
         mkdir -v -p "${tiled_profiles_dir}"
         cat << EOF > ${tiled_profiles_dir}/profiles.yml
-        ${BEAMLINE_ACRONYM:-local}:
+        ${BEAMLINE_ENDSTATION:-${BEAMLINE_ACRONYM:-local}}:
           direct:
             authentication:
               allow_anonymous_access: true
@@ -299,12 +335,12 @@ runs:
         echo "::endgroup::"
 
     - name: Configuring Redis
-      uses: supercharge/redis-github-action@1.8.0
+      uses: supercharge/redis-github-action@ea9b21c6ecece47bd99595c532e481390ea0f044 # 1.8.0
       with:
         redis-version: latest
 
     - name: Configuring Mongo
-      uses: supercharge/mongodb-github-action@1.11.0
+      uses: supercharge/mongodb-github-action@5a87bd81f88e2a8b195f8b7b656f5cda1350815a # 1.11.0
       with:
         mongodb-version: '4.4'
 
@@ -361,7 +397,7 @@ runs:
         conda activate $HOME/env
         export TILED_API_KEY=secret
         echo "TILED_API_KEY=${TILED_API_KEY}" >> $GITHUB_ENV
-        nohup tiled serve catalog --temp --api-key=$TILED_API_KEY &
+        nohup tiled serve catalog --temp --api-key=$TILED_API_KEY > /tmp/tiled.log 2>&1 &
         sleep 10
         echo "::endgroup::"
 
@@ -379,6 +415,14 @@ runs:
         client.create_container(tla).create_container('raw', specs=['CatalogOfBluesklyRuns'])
         print(client[tla]['raw'])"
         python3 -c "$command"
+        echo "::endgroup::"
+
+    - name: Show logs so far
+      if: always()
+      shell: bash -leo pipefail {0}
+      run: |
+        echo "::group::Tiled server logs so far"
+        cat /tmp/tiled.log
         echo "::endgroup::"
 
     - name: Apply auto settings
@@ -447,5 +491,9 @@ runs:
       shell: bash -leo pipefail {0}
       run: |
         echo "::group::Test results summary"
-        echo -e "### Test results\n\nTest for ${{ inputs.beamline-acronym }}:${{ inputs.repo }}@${{ inputs.branch }} finished." >> $GITHUB_STEP_SUMMARY
+        echo -e "### Test results\n\nTest for ${INPUTS_BEAMLINE_ACRONYM}:${INPUTS_REPO}@${INPUTS_BRANCH} finished." >> $GITHUB_STEP_SUMMARY
         echo "::endgroup::"
+      env:
+        INPUTS_BEAMLINE_ACRONYM: ${{ inputs.beamline-acronym }}
+        INPUTS_REPO: ${{ inputs.repo }}
+        INPUTS_BRANCH: ${{ inputs.branch }}
