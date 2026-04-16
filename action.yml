@@ -418,7 +418,8 @@ runs:
       shell: bash -leo pipefail {0}
       run: |
         echo "::group::Installing redis-cli and setting cycle and data session"
-        sudo apt install redis-tools
+        sudo apt-get update
+        sudo apt-get install -y redis-tools
         redis-cli -h ${BEAMLINE_REDIS_ADDRESS} set "${BEAMLINE_REDIS_PREFIX}cycle" "\"2025-2\""
         redis-cli -h ${BEAMLINE_REDIS_ADDRESS} set "${BEAMLINE_REDIS_PREFIX}data_session" "\"pass-000000\""
         redis-cli -h ${BEAMLINE_REDIS_ADDRESS} --scan
@@ -476,7 +477,7 @@ runs:
       shell: bash -leo pipefail {0}
       run: |
         echo "::group::Tiled server logs so far"
-        cat /tmp/tiled.log
+        cat /tmp/tiled.log || echo "Tiled log not found (server may not have started)"
         echo "::endgroup::"
 
     - name: Apply auto settings
