@@ -1,12 +1,14 @@
-name: 'testing-conda-environment'
-description: 'Test a conda environment of a specific python version against all beamlines'
+name: 'testing-beamline-environment'
+description: 'Test a conda or pixi environment against beamline profile collections. Uses pixi automatically when pixi.toml/pixi.lock is present in the profile repo.'
 inputs:
   conda_env_url:
-    description: 'URL to download the conda-packd environment, e.g: https://zenodo.org/records/14862443/files/2025-1.0-py311-tiled.tar.gz'
-    required: true
+    description: 'URL to download the conda-packd environment, e.g: https://zenodo.org/records/14862443/files/2025-1.0-py311-tiled.tar.gz. Not required when the profile repo uses pixi.'
+    required: false
+    default: ''
   conda_env_md5:
-    description: 'MD5 checksum of the conda environment'
-    required: true
+    description: 'MD5 checksum of the conda environment. Not required when the profile repo uses pixi.'
+    required: false
+    default: ''
   conda_pack_env_tarball:
     description: 'Use a locally built conda environment tarball'
     required: false
@@ -69,6 +71,32 @@ runs:
         export CLONED_REPO="$GITHUB_WORKSPACE"
         echo "CLONED_REPO=${CLONED_REPO}" >> $GITHUB_ENV
         echo "::endgroup::"
+
+    - name: Detect pixi environment
+      shell: bash -leo pipefail {0}
+      run: |
+        echo "::group::Detecting environment manager"
+        if [ -f "${CLONED_REPO}/pixi.toml" ] || [ -f "${CLONED_REPO}/pixi.lock" ]; then
+            echo "Found pixi.toml/pixi.lock in ${CLONED_REPO} — using pixi environment."
+            echo "USE_PIXI=true" >> $GITHUB_ENV
+        else
+            echo "No pixi.toml/pixi.lock found in ${CLONED_REPO} — using conda environment."
+            echo "USE_PIXI=false" >> $GITHUB_ENV
+        fi
+        echo "::endgroup::"
+
+    - name: Validate inputs
+      shell: bash -leo pipefail {0}
+      run: |
+        echo "::group::Validating inputs"
+        if [ "${USE_PIXI}" != "true" ] && [ -z "${INPUTS_CONDA_ENV_URL}" ]; then
+            echo "ERROR: 'conda_env_url' is required when the profile repo does not provide a pixi.toml/pixi.lock."
+            exit 1
+        fi
+        echo "USE_PIXI=${USE_PIXI}"
+        echo "::endgroup::"
+      env:
+        INPUTS_CONDA_ENV_URL: ${{ inputs.conda_env_url }}
 
     - name: Check if LICENSE file exists
       shell: bash -leo pipefail {0}
@@ -196,6 +224,7 @@ runs:
         echo "::endgroup::"
 
     - uses: conda-incubator/setup-miniconda@505e6394dae86d6a5c7fbb6e3fb8938e3e863830 # v3
+      if: env.USE_PIXI != 'true'
       with:
         activate-environment: test-env
         auto-update-conda: true
@@ -204,7 +233,7 @@ runs:
         conda-remove-defaults: true
 
     - name: Parse Conda Environment Version
-      if: inputs.conda_pack_env_tarball == ''
+      if: inputs.conda_pack_env_tarball == '' && env.USE_PIXI != 'true'
       id: parse-conda-env-version
       shell: bash -leo pipefail {0}
       run: |
@@ -216,7 +245,7 @@ runs:
         INPUTS_CONDA_ENV_URL: ${{ inputs.conda_env_url }}
 
     - name: Cache Conda Environment
-      if: inputs.conda_pack_env_tarball == ''
+      if: inputs.conda_pack_env_tarball == '' && env.USE_PIXI != 'true'
       id : cache-conda
       uses: actions/cache@v4
       with:
@@ -224,7 +253,7 @@ runs:
         key: ${{ runner.os }}-${{ env.CONDA_ENV_VERSION }}-${{ inputs.conda_env_md5 }}
 
     - name: Download and Cache Conda env from Zenodo
-      if: steps.cache-conda.outputs.cache-hit != 'true' && inputs.conda_pack_env_tarball == ''
+      if: steps.cache-conda.outputs.cache-hit != 'true' && inputs.conda_pack_env_tarball == '' && env.USE_PIXI != 'true'
       shell: bash -leo pipefail {0}
       run: |
         echo "::group::Downloading and caching conda environment"
@@ -241,7 +270,7 @@ runs:
         INPUTS_CONDA_ENV_URL: ${{ inputs.conda_env_url }}
 
     - name: Copy conda env from local path
-      if: inputs.conda_pack_env_tarball != ''
+      if: inputs.conda_pack_env_tarball != '' && env.USE_PIXI != 'true'
       shell: bash -leo pipefail {0}
       run: |
         echo "::group::Copying conda environment from local path"
@@ -252,6 +281,7 @@ runs:
         INPUTS_CONDA_PACK_ENV_TARBALL: ${{ inputs.conda_pack_env_tarball }}
 
     - name: Create a conda env from downloaded file or cache
+      if: env.USE_PIXI != 'true'
       shell: bash -leo pipefail {0}
       run: |
         echo "${INPUTS_CONDA_ENV_MD5} $HOME/download_conda_env/env.tar.gz" > checksum.txt
@@ -266,6 +296,22 @@ runs:
         echo "::endgroup::"
       env:
         INPUTS_CONDA_ENV_MD5: ${{ inputs.conda_env_md5 }}
+
+    - name: Install pixi
+      if: env.USE_PIXI == 'true'
+      uses: prefix-dev/setup-pixi@v0.8.5
+      with:
+        manifest-path: "${{ env.CLONED_REPO }}/pixi.toml"
+        environments: terminal
+        run-install: true
+
+    - name: Install tiled server for pixi mode
+      if: env.USE_PIXI == 'true'
+      shell: bash -leo pipefail {0}
+      run: |
+        echo "::group::Installing tiled server via pip"
+        python3 -m pip install 'tiled[server]'
+        echo "::endgroup::"
 
     - name: Run beamline specific steps
       shell: bash -leo pipefail {0}
@@ -382,18 +428,26 @@ runs:
       shell: bash -leo pipefail {0}
       run: |
         echo "::group::Creating NSLS2 tiled profile"
-        conda activate $HOME/env
-        tiled profile create --name nsls2 http://127.0.0.1:8000
+        if [ "${USE_PIXI}" == "true" ]; then
+            tiled profile create --name nsls2 http://127.0.0.1:8000
+        else
+            conda activate $HOME/env
+            tiled profile create --name nsls2 http://127.0.0.1:8000
+        fi
         echo "::endgroup::"
 
     - name: Start Tiled Server
       shell: bash -leo pipefail {0}
       run: |
         echo "::group::Starting Tiled server"
-        conda activate $HOME/env
         export TILED_API_KEY=secret
         echo "TILED_API_KEY=${TILED_API_KEY}" >> $GITHUB_ENV
-        nohup tiled serve catalog --temp --api-key=$TILED_API_KEY > /tmp/tiled.log 2>&1 &
+        if [ "${USE_PIXI}" == "true" ]; then
+            nohup tiled serve catalog --temp --api-key=$TILED_API_KEY > /tmp/tiled.log 2>&1 &
+        else
+            conda activate $HOME/env
+            nohup tiled serve catalog --temp --api-key=$TILED_API_KEY > /tmp/tiled.log 2>&1 &
+        fi
         sleep 10
         echo "::endgroup::"
 
@@ -401,7 +455,6 @@ runs:
       shell: bash -leo pipefail {0}
       run: |
         echo "::group::Creating TLA tiled profile"
-        conda activate $HOME/env
         command="
         import os
         from tiled.client import from_profile
@@ -410,7 +463,12 @@ runs:
         client = from_profile('nsls2', api_key=os.getenv(f'TILED_BLUESKY_WRITING_API_KEY_{TLA}', 'secret'))
         client.create_container(tla).create_container('raw', specs=['CatalogOfBluesklyRuns'])
         print(client[tla]['raw'])"
-        python3 -c "$command"
+        if [ "${USE_PIXI}" == "true" ]; then
+            python3 -c "$command"
+        else
+            conda activate $HOME/env
+            python3 -c "$command"
+        fi
         echo "::endgroup::"
 
     - name: Show logs so far
@@ -441,8 +499,6 @@ runs:
       shell: bash -leo pipefail {0}
       run: |
         echo "::group::Activating IPython profile and running tests..."
-        conda activate $HOME/env
-
         cd "${CLONED_REPO}"
 
         # Start Xvfb
@@ -464,7 +520,12 @@ runs:
             print(f'Executing {f} in CI')
             ip.parent._exec_file(f)"
         env | grep EPICS
-        ipython --profile=test -c "$command"
+        if [ "${USE_PIXI}" == "true" ]; then
+            pixi run -e terminal --manifest-path "${CLONED_REPO}/pixi.toml" ipython --profile=test -c "$command"
+        else
+            conda activate $HOME/env
+            ipython --profile=test -c "$command"
+        fi
         echo "::endgroup::"
 
     - name: Check bluesky logs
