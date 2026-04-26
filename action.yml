@@ -380,7 +380,13 @@ runs:
         echo "mock-redis-secret" | sudo tee /etc/bluesky/redis.secret
         echo "::endgroup::"
 
-    - name: Configuring Redis
+    - name: Configuring Redis (insecure, port 6379)
+      uses: supercharge/redis-github-action@ea9b21c6ecece47bd99595c532e481390ea0f044 # 1.8.0
+      with:
+        redis-version: latest
+        redis-port: 6379
+
+    - name: Configuring Redis (password-protected, port 6380)
       uses: supercharge/redis-github-action@ea9b21c6ecece47bd99595c532e481390ea0f044 # 1.8.0
       with:
         redis-version: latest
@@ -411,6 +417,8 @@ runs:
         echo "::group::Testing connections"
         echo "Pinging ${BEAMLINE_REDIS_ADDRESS}..."
         ping -c 5 ${BEAMLINE_REDIS_ADDRESS}
+        echo "Telnetting to ${BEAMLINE_REDIS_ADDRESS}:6379..."
+        echo "" | telnet ${BEAMLINE_REDIS_ADDRESS} 6379
         echo "Telnetting to ${BEAMLINE_REDIS_ADDRESS}:6380..."
         echo "" | telnet ${BEAMLINE_REDIS_ADDRESS} 6380
         echo "Telnetting to xf12id2-smi-redis1.nsls2.bnl.gov:6380..."
@@ -429,6 +437,9 @@ runs:
         echo "::group::Installing redis-cli and setting cycle and data session"
         sudo apt-get update
         sudo apt-get install -y redis-tools
+        redis-cli -h ${BEAMLINE_REDIS_ADDRESS} -p 6379 set "${BEAMLINE_REDIS_PREFIX}cycle" "\"2026-2\""
+        redis-cli -h ${BEAMLINE_REDIS_ADDRESS} -p 6379 set "${BEAMLINE_REDIS_PREFIX}data_session" "\"pass-000000\""
+        redis-cli -h ${BEAMLINE_REDIS_ADDRESS} -p 6379 --scan
         redis-cli -h ${BEAMLINE_REDIS_ADDRESS} -p 6380 -a mock-redis-secret set "${BEAMLINE_REDIS_PREFIX}cycle" "\"2026-2\""
         redis-cli -h ${BEAMLINE_REDIS_ADDRESS} -p 6380 -a mock-redis-secret set "${BEAMLINE_REDIS_PREFIX}data_session" "\"pass-000000\""
         redis-cli -h ${BEAMLINE_REDIS_ADDRESS} -p 6380 -a mock-redis-secret --scan
