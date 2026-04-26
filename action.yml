@@ -413,6 +413,8 @@ runs:
         ping -c 5 ${BEAMLINE_REDIS_ADDRESS}
         echo "Telnetting to ${BEAMLINE_REDIS_ADDRESS}:6380..."
         echo "" | telnet ${BEAMLINE_REDIS_ADDRESS} 6380
+        echo "Telnetting to xf12id2-smi-redis1.nsls2.bnl.gov:6380..."
+        echo "" | telnet xf12id2-smi-redis1.nsls2.bnl.gov 6380
         for i in {1..3}; do
             echo "Pinging mongo${i}.nsls2.bnl.gov..."
             ping -c 5 mongo${i}.nsls2.bnl.gov
@@ -427,7 +429,7 @@ runs:
         echo "::group::Installing redis-cli and setting cycle and data session"
         sudo apt-get update
         sudo apt-get install -y redis-tools
-        redis-cli -h ${BEAMLINE_REDIS_ADDRESS} -p 6380 -a mock-redis-secret set "${BEAMLINE_REDIS_PREFIX}cycle" "\"2025-2\""
+        redis-cli -h ${BEAMLINE_REDIS_ADDRESS} -p 6380 -a mock-redis-secret set "${BEAMLINE_REDIS_PREFIX}cycle" "\"2026-2\""
         redis-cli -h ${BEAMLINE_REDIS_ADDRESS} -p 6380 -a mock-redis-secret set "${BEAMLINE_REDIS_PREFIX}data_session" "\"pass-000000\""
         redis-cli -h ${BEAMLINE_REDIS_ADDRESS} -p 6380 -a mock-redis-secret --scan
         echo "::endgroup::"
