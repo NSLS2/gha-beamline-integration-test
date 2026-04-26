@@ -384,6 +384,8 @@ runs:
       uses: supercharge/redis-github-action@ea9b21c6ecece47bd99595c532e481390ea0f044 # 1.8.0
       with:
         redis-version: latest
+        redis-port: 6380
+        redis-password: mock-redis-secret
 
     - name: Configuring Mongo
       uses: supercharge/mongodb-github-action@5a87bd81f88e2a8b195f8b7b656f5cda1350815a # 1.11.0
@@ -399,6 +401,7 @@ runs:
         export BEAMLINE_REDIS_ADDRESS="${beamline_redis_address}"
         echo "BEAMLINE_REDIS_ADDRESS=${BEAMLINE_REDIS_ADDRESS}" >> $GITHUB_ENV
         sudo echo "127.0.0.1 ${BEAMLINE_REDIS_ADDRESS}" | sudo tee -a /etc/hosts
+        sudo echo "127.0.0.1 xf12id2-smi-redis1.nsls2.bnl.gov" | sudo tee -a /etc/hosts
         for i in {1..3}; do
             sudo echo "127.0.0.1 mongo${i}.nsls2.bnl.gov" | sudo tee -a /etc/hosts
         done
@@ -408,8 +411,8 @@ runs:
         echo "::group::Testing connections"
         echo "Pinging ${BEAMLINE_REDIS_ADDRESS}..."
         ping -c 5 ${BEAMLINE_REDIS_ADDRESS}
-        echo "Telnetting to ${BEAMLINE_REDIS_ADDRESS}:6379..."
-        echo "" | telnet ${BEAMLINE_REDIS_ADDRESS} 6379
+        echo "Telnetting to ${BEAMLINE_REDIS_ADDRESS}:6380..."
+        echo "" | telnet ${BEAMLINE_REDIS_ADDRESS} 6380
         for i in {1..3}; do
             echo "Pinging mongo${i}.nsls2.bnl.gov..."
             ping -c 5 mongo${i}.nsls2.bnl.gov
@@ -424,9 +427,9 @@ runs:
         echo "::group::Installing redis-cli and setting cycle and data session"
         sudo apt-get update
         sudo apt-get install -y redis-tools
-        redis-cli -h ${BEAMLINE_REDIS_ADDRESS} set "${BEAMLINE_REDIS_PREFIX}cycle" "\"2025-2\""
-        redis-cli -h ${BEAMLINE_REDIS_ADDRESS} set "${BEAMLINE_REDIS_PREFIX}data_session" "\"pass-000000\""
-        redis-cli -h ${BEAMLINE_REDIS_ADDRESS} --scan
+        redis-cli -h ${BEAMLINE_REDIS_ADDRESS} -p 6380 -a mock-redis-secret set "${BEAMLINE_REDIS_PREFIX}cycle" "\"2025-2\""
+        redis-cli -h ${BEAMLINE_REDIS_ADDRESS} -p 6380 -a mock-redis-secret set "${BEAMLINE_REDIS_PREFIX}data_session" "\"pass-000000\""
+        redis-cli -h ${BEAMLINE_REDIS_ADDRESS} -p 6380 -a mock-redis-secret --scan
         echo "::endgroup::"
 
     - name: Create nsls2 tiled profile
