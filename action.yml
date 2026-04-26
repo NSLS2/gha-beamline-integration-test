@@ -385,6 +385,7 @@ runs:
       with:
         redis-version: latest
         redis-port: 6379
+        redis-container-name: redis-insecure
 
     - name: Configuring Redis (password-protected, port 6380)
       uses: supercharge/redis-github-action@ea9b21c6ecece47bd99595c532e481390ea0f044 # 1.8.0
@@ -392,6 +393,7 @@ runs:
         redis-version: latest
         redis-port: 6380
         redis-password: mock-redis-secret
+        redis-container-name: redis-auth
 
     - name: Configuring Mongo
       uses: supercharge/mongodb-github-action@5a87bd81f88e2a8b195f8b7b656f5cda1350815a # 1.11.0
