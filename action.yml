@@ -528,28 +528,32 @@ runs:
         /sbin/start-stop-daemon --start --quiet --pidfile /tmp/custom_xvfb_99.pid --make-pidfile --background --exec /usr/bin/Xvfb -- :99 -ac -screen 0 1280x1024x16
         export DISPLAY=:99
 
-        command="
-        import os
-        import glob
-        from ophyd.signal import EpicsSignalBase
-        EpicsSignalBase.set_defaults(connection_timeout=10)
-        ip = get_ipython()
-        startup_files = sorted(glob.glob(os.path.join(os.getcwd(), 'startup/*.py')))
-        if os.path.isfile('.ci/drop-in.py'):
-            startup_files.append('.ci/drop-in.py')
-        if not startup_files:
-            raise SystemExit(f'Cannot find any startup files in {os.getcwd()}')
-        for f in startup_files:
-            if not os.path.isfile(f):
-                raise FileNotFoundError(f'File {f} cannot be found.')
-            print(f'Executing {f} in CI')
-            ip.parent._exec_file(f)"
+        cat > /tmp/ci_runner.py << 'EOF'
+import os
+import glob
+
+from ophyd.signal import EpicsSignalBase
+EpicsSignalBase.set_defaults(connection_timeout=10)
+
+ip = get_ipython()
+startup_files = sorted(glob.glob(os.path.join(os.getcwd(), 'startup/*.py')))
+if os.path.isfile('.ci/drop-in.py'):
+    startup_files.append('.ci/drop-in.py')
+if not startup_files:
+    raise SystemExit(f'Cannot find any startup files in {os.getcwd()}')
+for f in startup_files:
+    if not os.path.isfile(f):
+        raise FileNotFoundError(f'File {f} cannot be found.')
+    print(f'Executing {f} in CI')
+    ip.parent._exec_file(f)
+EOF
+
         env | grep EPICS
         if [ "${USE_PIXI}" == "true" ]; then
-            pixi run -e terminal --manifest-path "${CLONED_REPO}/pixi.toml" ipython --profile=test -c "$command"
+            pixi run -e terminal --manifest-path "${CLONED_REPO}/pixi.toml" ipython --profile=test /tmp/ci_runner.py
         else
             conda activate $HOME/env
-            ipython --profile=test -c "$command"
+            ipython --profile=test /tmp/ci_runner.py
         fi
         echo "::endgroup::"
 
