@@ -531,6 +531,8 @@ runs:
         command="
         import os
         import glob
+        from ophyd.signal import EpicsSignalBase
+        EpicsSignalBase.set_defaults(connection_timeout=10)
         ip = get_ipython()
         startup_files = sorted(glob.glob(os.path.join(os.getcwd(), 'startup/*.py')))
         if os.path.isfile('.ci/drop-in.py'):
