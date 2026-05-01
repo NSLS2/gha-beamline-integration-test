@@ -104,22 +104,6 @@ runs:
             echo "EPICS_CA_ADDR_LIST=127.0.0.1"
         } >> $GITHUB_ENV
 
-    - name: Run beamline-specific steps
-      shell: bash -leo pipefail {0}
-      run: |
-        if [ -f "${CLONED_REPO}/.ci/bl-specific.sh" ]; then
-            # Activate the profile's pixi env so the script inherits its PATH/env.
-            eval "$(pixi shell-hook --manifest-path ${CLONED_REPO}/pixi.toml -e ${{ matrix.pixi-env }})"
-            # Non-interactive CI shells need the conda hook for `conda activate`.
-            if command -v conda >/dev/null 2>&1; then
-                eval "$(conda shell.bash hook)"
-            fi
-            echo "Sourcing ${CLONED_REPO}/.ci/bl-specific.sh"
-            cd "${CLONED_REPO}"
-            source ".ci/bl-specific.sh"
-        fi
-  
-
     # - name: Env vars for locally cloned repo
     #   if: inputs.branch != ''
     #   shell: bash -leo pipefail {0}
