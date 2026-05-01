@@ -27,85 +27,42 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: Clone profile collection
-        shell: bash -leo pipefail {0}
-        run: |
-          REPO_NAME="${{ matrix.repo }}"
-          BRANCH="${{ matrix.branch || 'main' }}"
-          export CLONED_REPO="$HOME/${REPO_NAME}"
-          echo "CLONED_REPO=${CLONED_REPO}" >> $GITHUB_ENV
-          git clone -b "${BRANCH}" "https://github.com/NSLS2/${REPO_NAME}" ${CLONED_REPO}
-      
-      - name: Endstation env vars
-        shell: bash -leo pipefail {0}
-        run: |
-          # For single-endstation beamlines, beamline-acronym == endstation.
-          # For multi-endstation beamlines, beamline-acronym is set explicitly in the matrix.
-          BEAMLINE_ACRONYM="${{ matrix['beamline-acronym'] || matrix.endstation }}"
-          BEAMLINE_ACRONYM_UPPER="${BEAMLINE_ACRONYM^^}"
-
-          {
-            echo "BEAMLINE_ACRONYM=${BEAMLINE_ACRONYM}"
-            echo "ENDSTATION_ACRONYM=${{ matrix.endstation }}"
-            echo "REDIS_HOST=${{ matrix['redis-host'] }}"
-            echo "QS_HOST=${{ matrix['qs-host'] }}"
-            echo "TILED_BLUESKY_WRITING_API_KEY_${BEAMLINE_ACRONYM_UPPER}=secret"
-            echo "TILED_BLUESKY_WRITING_API_KEY=secret"
-            echo "MONGO_USER_${BEAMLINE_ACRONYM_UPPER}=test"
-            echo "MONGO_PASSWORD_${BEAMLINE_ACRONYM_UPPER}=test"
-            echo "BLUESKY_KAFKA_BOOTSTRAP_SERVERS=127.0.0.1:9092"
-            echo "BLUESKY_KAFKA_PASSWORD=test"
-          } >> $GITHUB_ENV
-
-      - name: Beamline directory setup
-        shell: bash -leo pipefail {0}
-        run: |
-          sudo mkdir -v -p /nsls2/
-          sudo chown -v $USER: /nsls2/
-          mkdir -v -p /nsls2/data/${BEAMLINE_ACRONYM}/shared/config/RE-metadata
-          mkdir -v -p /nsls2/data/${BEAMLINE_ACRONYM}/shared/config/bluesky/logs
-          mkdir -v -p /nsls2/data/${BEAMLINE_ACRONYM}-new
-
-          export LOGS_HOME="$HOME"
-          if [ "${BEAMLINE_ACRONYM}" == "srx" ]; then
-              export LOGS_HOME="/home/xf05id1"
-              sudo mkdir -v -p /home/xf05id1/
-              sudo chown -v $USER: /home/xf05id1/
-          elif [ "${BEAMLINE_ACRONYM}" == "hxn" ]; then
-              sudo mkdir -v -p /home/xf03id/
-              sudo chown -v $USER: /home/xf03id/
-              mkdir -v -p /home/xf03id/logs/
-              touch /home/xf03id/benchmark.out
-          fi
-          echo "LOGS_HOME=${LOGS_HOME}" >> $GITHUB_ENV
-          mkdir -v -p ${LOGS_HOME}/.cache/bluesky/log/
-
-          mkdir -v -p $HOME/.ipython/
-          cp -rv "${CLONED_REPO}" $HOME/.ipython/profile_test
-          rm -fv ~/.ipython/profile_test/startup/*.py
-
-      - name: EPICS env vars
-        shell: bash -leo pipefail {0}
-        run: |
-          {
-              echo "EPICS_CA_AUTO_ADDR_LIST=NO"
-              echo "EPICS_CA_ADDR_LIST=127.0.0.1"
-          } >> $GITHUB_ENV
-
-      - name: Set up Python (for blackhole IOC)
+      - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: 3.11
-       #uses: actions/checkout@v4
 
-    #   - name: Install pixi
-    #     uses: ./.github/actions/install-pixi
+      - name: Beamline-specific, gets env vars and repo info
+        uses: ./action.yml
 
-    #   - name: Set up pixi
-    #     uses: ./.github/actions/setup-pixi
+      - name: Set up pixi
+        uses: prefix-dev/setup-pixi@19eac09b398e3d0c747adc7921926a6d802df4da # v0.8.8
+        with:
+          pixi-version: v0.56.0
+          run-install: false
+          cache: false
 
-    #   - name: Get environment variables
-    #     uses: ./.github/actions/get-env-vars
+      - name: Install pixi profile environment
+        shell: bash -leo pipefail {0}
+        run: |
+          pixi --version
+          pixi install --manifest-path ${CLONED_REPO}/pixi.toml -e ${{ matrix.pixi-env }}
+          
+      - name: Run beamline-specific steps
+        shell: bash -leo pipefail {0}
+        run: |
+          if [ -f "${CLONED_REPO}/.ci/bl-specific.sh" ]; then
+              # Activate the profile's pixi env so the script inherits its PATH/env.
+              eval "$(pixi shell-hook --manifest-path ${CLONED_REPO}/pixi.toml -e ${{ matrix.pixi-env }})"
+              # Non-interactive CI shells need the conda hook for `conda activate`.
+              if command -v conda >/dev/null 2>&1; then
+                  eval "$(conda shell.bash hook)"
+              fi
+              echo "Sourcing ${CLONED_REPO}/.ci/bl-specific.sh"
+              cd "${CLONED_REPO}"
+              source ".ci/bl-specific.sh"
+          fi
+
 
       - name: Start blackhole IOC
         uses: ./.github/actions/start-blackhole-ioc
@@ -123,6 +80,7 @@ jobs:
     #   - name: Stop service
     #     uses: ./.github/actions/stop-service
 
-      # Repeat Stop service for each additional service as needed
+    # Repeat Stop service for each additional service as needed
+
       - name: Stop blackhole IOC
         uses: ./.github/actions/stop-blackhole-ioc
