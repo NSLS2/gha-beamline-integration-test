@@ -33,7 +33,7 @@ jobs:
           python-version: 3.11
 
       - name: Beamline-specific, gets env vars and repo info
-        uses: ./action.yml
+        uses: ./
 
       - name: Set up pixi
         uses: prefix-dev/setup-pixi@19eac09b398e3d0c747adc7921926a6d802df4da # v0.8.8
