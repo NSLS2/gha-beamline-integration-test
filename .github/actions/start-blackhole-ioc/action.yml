@@ -1,0 +1,24 @@
+name: 'Start blackhole IOC'
+description: 'Starts the blackhole IOC service'
+runs:
+  using: 'composite'
+  steps:
+    - run: |
+        # Runs on the setup-python interpreter so it does not depend on the
+        # profile's pixi env (which may not include caproto).
+        python3 -m pip install -U caproto
+
+        # nohup + disown so the IOC survives past this step; record its PID
+        # for a later cleanup step. Each workflow step runs in a fresh shell,
+        # so an EXIT trap here would kill the IOC immediately.
+        nohup python3 $GITHUB_ACTION_PATH/actions/start-blackhole_ioc/spoof_beamline.py< <(echo "") \
+            > /tmp/blackhole_ioc.log 2>&1 &
+        IOC_PID=$!
+        disown
+
+        echo "BLACKHOLE_IOC_PID=${IOC_PID}" >> $GITHUB_ENV
+        caproto_repeater_path="$(command -v caproto-repeater)"
+
+        test -n "$caproto_repeater_path"
+        sudo ln -svf "$caproto_repeater_path" "/bin/caRepeater"
+      shell: bash
