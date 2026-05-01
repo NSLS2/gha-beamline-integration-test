@@ -39,15 +39,6 @@ runs:
       with:
         persist-credentials: false
 
-    - name: Clone profile collection
-      shell: bash -leo pipefail {0}
-      run: |
-        REPO_NAME="${{ matrix.repo }}"
-        BRANCH="${{ matrix.branch || 'main' }}"
-        export CLONED_REPO="$HOME/${REPO_NAME}"
-        echo "CLONED_REPO=${CLONED_REPO}" >> $GITHUB_ENV
-        git clone -b "${BRANCH}" "https://github.com/NSLS2/${REPO_NAME}" ${CLONED_REPO}
-    
     - name: Endstation env vars
       shell: bash -leo pipefail {0}
       run: |

@@ -32,9 +32,15 @@ jobs:
         with:
           python-version: 3.11
 
-      - name: Beamline-specific, gets env vars and repo info
-        uses: ./
-
+      - name: Clone profile collection
+        shell: bash -leo pipefail {0}
+        run: |
+          REPO_NAME="${{ matrix.repo }}"
+          BRANCH="${{ matrix.branch || 'main' }}"
+          export CLONED_REPO="$HOME/${REPO_NAME}"
+          echo "CLONED_REPO=${CLONED_REPO}" >> $GITHUB_ENV
+          git clone -b "${BRANCH}" "https://github.com/NSLS2/${REPO_NAME}" ${CLONED_REPO}
+    
       - name: Set up pixi
         uses: prefix-dev/setup-pixi@19eac09b398e3d0c747adc7921926a6d802df4da # v0.8.8
         with:
@@ -47,7 +53,10 @@ jobs:
         run: |
           pixi --version
           pixi install --manifest-path ${CLONED_REPO}/pixi.toml -e ${{ matrix.pixi-env }}
-          
+
+      - name: Beamline-specific, gets env vars and repo info
+        uses: ./
+
       - name: Run beamline-specific steps
         shell: bash -leo pipefail {0}
         run: |
