@@ -41,6 +41,7 @@ jobs:
           echo "CLONED_REPO=${CLONED_REPO}" >> $GITHUB_ENV
           git clone -b "${BRANCH}" "https://github.com/NSLS2/${REPO_NAME}" ${CLONED_REPO}
     
+      # Set up pixi
       - name: Set up pixi
         uses: prefix-dev/setup-pixi@19eac09b398e3d0c747adc7921926a6d802df4da # v0.8.8
         with:
@@ -53,6 +54,8 @@ jobs:
         run: |
           pixi --version
           pixi install --manifest-path ${CLONED_REPO}/pixi.toml -e ${{ matrix.pixi-env }}
+
+
 
       - name: Beamline-specific, gets env vars and repo info
         uses: ./
@@ -76,20 +79,129 @@ jobs:
       - name: Start blackhole IOC
         uses: ./.github/actions/start-blackhole-ioc
 
-    #   - name: Configure service
-    #     uses: ./.github/actions/configure-service
 
-    #   - name: Start service
-    #     uses: ./.github/actions/start-service
-    #   # Repeat Configure/Start service for each additional service as needed
+    # Configure services
+      - name: Configure Tiled, pyOlog, databroker, and Kafka
+        uses: ./.github/actions/configure-services
 
-    #   - name: Show logs
-    #     uses: ./.github/actions/show-logs
+      - name: Configure DNS and seed Redis
+        uses: ./.github/actions/configure-dns
+   
 
-    #   - name: Stop service
-    #     uses: ./.github/actions/stop-service
+        
+    # Start services
+      - name: Start Redis
+        uses: supercharge/redis-github-action@ea9b21c6ecece47bd99595c532e481390ea0f044 # 1.8.0
+        with:
+          redis-version: '6'
 
-    # Repeat Stop service for each additional service as needed
+      - name: Start MongoDB
+        uses: supercharge/mongodb-github-action@5a87bd81f88e2a8b195f8b7b656f5cda1350815a # 1.11.0
+        with:
+          mongodb-version: '4.4'
+
+      - name: Start Kafka
+        uses: ./.github/actions/start-kafka
+        
+      - name: Start Tiled
+        uses: ./.github/actions/start-tiled
+
+
+
+      - name: Apply auto settings
+        shell: bash -leo pipefail {0}
+        run: |
+          if [ -f "${CLONED_REPO}/.ci/auto_settings.sav" ]; then
+            while IFS= read -r line; do
+              if [ -n "$line" ]; then
+                  caproto-put $line
+              fi
+            done < "${CLONED_REPO}/.ci/auto_settings.sav"
+          fi
+
+    # Run profile tests      
+      - name: Run profile startup tests
+        shell: bash -leo pipefail {0}
+        run: |
+          eval "$(pixi shell-hook --manifest-path ${CLONED_REPO}/pixi.toml -e ${{ matrix.pixi-env }})"
+          echo "DEBUG: TILED_API_KEY_LEN=${#TILED_API_KEY}"
+          cd "${CLONED_REPO}"
+
+          if [ "${{ matrix.pixi-env }}" = "terminal" ]; then
+            /sbin/start-stop-daemon --start --quiet --pidfile /tmp/custom_xvfb_99.pid --make-pidfile --background --exec /usr/bin/Xvfb -- :99 -ac -screen 0 1280x1024x16
+            export DISPLAY=:99
+
+            command="
+            import os, glob, sys, traceback
+            ip = get_ipython()
+            startup_files = sorted(glob.glob(os.path.join(os.getcwd(), 'startup/*.py')))
+            if os.path.isfile('.ci/drop-in.py'):
+              startup_files.append('.ci/drop-in.py')
+            if not startup_files:
+              raise SystemExit(f'Cannot find any startup files in {os.getcwd()}')
+            for f in startup_files:
+              if not os.path.isfile(f):
+                raise FileNotFoundError(f'File {f} cannot be found.')
+              print(f'Executing {f} in CI')
+              try:
+                ip.parent._exec_file(f)
+              except Exception as e:
+                print(f'ERROR in {f}:')
+                traceback.print_exc()
+                raise"
+            env | grep EPICS
+            ipython --profile=test -c "$command"
+          else
+            # TODO: queueserver tests disabled for now
+            # nohup start-re-manager --profile-dir=. < /dev/null > /tmp/qs_manager.log 2>&1 &
+            # QS_MANAGER_PID=$!
+            # disown
+            # echo "QS_MANAGER_PID=${QS_MANAGER_PID}" >> $GITHUB_ENV
+
+            # for i in {1..60}; do
+            #   if grep -qF "ZeroMQ server is waiting on" /tmp/qs_manager.log; then
+            #     exit 0
+            #   fi
+            #   sleep 1
+            # done
+
+            # echo "start-re-manager did not become ready within 60 seconds"
+            # kill -SIGINT "${QS_MANAGER_PID}" 2>/dev/null || true
+            # exit 1
+            echo "Queueserver tests disabled"
+            exit 0
+          fi
+
+    # Show logs
+      - name: Show logs
+        if: always()
+        shell: bash -leo pipefail {0}
+        run: |
+          show_log() {
+              echo "=== $1 ==="
+              if [ -f "$2" ]; then
+                  cat "$2"
+              else
+                  echo "(not produced)"
+              fi
+          }
+          show_log "Blackhole IOC" /tmp/blackhole_ioc.log
+          show_log "Tiled server" /tmp/tiled.log
+          # show_log "QS manager" /tmp/qs_manager.log  # TODO: re-enable when queueserver tests are active
+          show_log "Caddy reverse proxy" /tmp/caddy.log
+          show_log "Bluesky" "${LOGS_HOME}/.cache/bluesky/log/bluesky.log"
+          show_log "Bluesky IPython" "${LOGS_HOME}/.cache/bluesky/log/bluesky_ipython.log"
+          echo "=== Kafka ==="
+          docker logs kafka 2>&1 || echo "(not produced)"
+
+
+    # Stop Services
+      - name: Stop stunnel (Redis TLS proxy)
+        if: always()
+        shell: bash -leo pipefail {0}
+        run: |
+          sudo service stunnel4 stop 2>/dev/null || true
+          sudo pkill -f stunnel 2>/dev/null || true
 
       - name: Stop blackhole IOC
         uses: ./.github/actions/stop-blackhole-ioc

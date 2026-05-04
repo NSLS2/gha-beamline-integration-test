@@ -1,0 +1,180 @@
+name: 'Start Tiled server and create profiles'
+description: 'Starts the Tiled server and creates profiles'
+runs:
+  using: 'composite'
+  steps:
+    - run: |
+        # Runs on the setup-python interpreter so it does not depend on the
+        eval "$(pixi shell-hook --manifest-path ${CLONED_REPO}/pixi.toml -e ${{ matrix.pixi-env }})"
+
+        # Start mock API server for facility/cycles endpoint on port 8080
+        # then forward port 80 to it via iptables
+        python3 << 'MOCK_API_EOF' &
+        from http.server import HTTPServer, BaseHTTPRequestHandler
+        import json
+        
+        class MockAPIHandler(BaseHTTPRequestHandler):
+            def do_GET(self):
+                if self.path == '/v1/facility/nsls2/cycles/current':
+                    response = {
+                        'cycle': '2025-2',
+                        'start_date': '2025-02-01',
+                        'end_date': '2025-02-28'
+                    }
+                    self.send_response(200)
+                    self.send_header('Content-type', 'application/json')
+                    self.end_headers()
+                    self.wfile.write(json.dumps(response).encode())
+                else:
+                    self.send_response(404)
+                    self.end_headers()
+            
+            def log_message(self, format, *args):
+                pass  # suppress logs
+        
+        server = HTTPServer(('127.0.0.1', 8080), MockAPIHandler)
+        try:
+            server.serve_forever()
+        except KeyboardInterrupt:
+            pass
+        finally:
+            server.server_close()
+        MOCK_API_EOF
+        MOCK_API_PID=$!
+        disown
+        echo "MOCK_API_PID=${MOCK_API_PID}" >> $GITHUB_ENV
+        sleep 1
+
+        # Use the same API key profiles export for writes so hardcoded-key
+        # calls can authenticate against this mock Tiled server.
+        TILED_SERVER_API_KEY_VAR="TILED_BLUESKY_WRITING_API_KEY_${BEAMLINE_ACRONYM_UPPER}"
+        TILED_SERVER_API_KEY="${!TILED_SERVER_API_KEY_VAR:-secret}"
+        echo "TILED_API_KEY=${TILED_SERVER_API_KEY}" >> $GITHUB_ENV
+
+        # Generate a short-lived cert for tiled.nsls2.bnl.gov and api.nsls2.bnl.gov.
+        # Both use the same cert since they resolve to 127.0.0.1.
+        openssl req -x509 -newkey rsa:2048 -sha256 -days 1 -nodes \
+          -keyout /tmp/tiled.key \
+          -out /tmp/tiled.crt \
+          -subj "/CN=tiled.nsls2.bnl.gov" \
+          -addext "subjectAltName=DNS:tiled.nsls2.bnl.gov,DNS:api.nsls2.bnl.gov,IP:127.0.0.1"
+
+        # Combine Tiled and Redis certs so all TLS clients (Tiled, redis-py) can verify.
+        cat /tmp/redis.crt /tmp/tiled.crt > /tmp/certs.pem
+        {
+          echo "SSL_CERT_FILE=/tmp/certs.pem"
+          echo "REQUESTS_CA_BUNDLE=/tmp/certs.pem"
+        } >> $GITHUB_ENV
+        export SSL_CERT_FILE=/tmp/certs.pem
+        export REQUESTS_CA_BUNDLE=/tmp/certs.pem
+
+        # Start tiled on a high port (8000) without TLS.
+        TILED_BIN="$(command -v tiled)"
+        nohup "$TILED_BIN" serve catalog --temp \
+          --host 127.0.0.1 \
+          --port 8000 \
+          --api-key "${TILED_SERVER_API_KEY}" > /tmp/tiled.log 2>&1 &
+        TILED_PID=$!
+        disown
+        echo "TILED_PID=${TILED_PID}" >> $GITHUB_ENV
+
+        # Use Caddy as a reverse proxy on 443 with self-signed cert.
+        sudo apt-get install -y -qq caddy
+        # Grant the cap to bind privileged ports so we can run caddy unprivileged
+        # and capture its real PID via $! (avoiding sudo wrapping the process).
+        sudo setcap cap_net_bind_service=+ep "$(command -v caddy)"
+
+        cat > /tmp/Caddyfile << 'CADDYFILE'
+        {
+          admin off
+          auto_https disable_redirects
+        }
+        https://tiled.nsls2.bnl.gov {
+          tls /tmp/tiled.crt /tmp/tiled.key
+          reverse_proxy 127.0.0.1:8000
+        }
+        https://api.nsls2.bnl.gov {
+          tls /tmp/tiled.crt /tmp/tiled.key
+          reverse_proxy 127.0.0.1:8080
+        }
+        CADDYFILE
+
+        nohup caddy run --config /tmp/Caddyfile > /tmp/caddy.log 2>&1 &
+        CADDY_PID=$!
+        disown
+        echo "CADDY_PID=${CADDY_PID}" >> $GITHUB_ENV
+
+        # Phase 1: Tiled direct on 127.0.0.1:8000 (bypasses caddy/TLS).
+        # Use /healthz — doesn't depend on catalog init, designed as the
+        # up/down probe (matches tiled's own SimpleTiledServer readiness logic).
+        tiled_ready=0
+        for i in {1..60}; do
+          if curl --silent --fail http://127.0.0.1:8000/healthz >/dev/null 2>&1; then
+            tiled_ready=1
+            break
+          fi
+          sleep 1
+        done
+        if [ "$tiled_ready" -ne 1 ]; then
+          echo "Tiled (direct on :8000) did not become ready within 60 seconds"
+          cat /tmp/tiled.log || true
+          exit 1
+        fi
+
+
+        # Phase 2: through caddy reverse-proxy + DNS hijack + TLS.
+        proxy_ready=0
+        for i in {1..30}; do
+          if curl --silent --fail --cacert /tmp/tiled.crt \
+            https://tiled.nsls2.bnl.gov/healthz >/dev/null 2>&1; then
+            proxy_ready=1
+            break
+          fi
+          sleep 1
+        done
+        if [ "$proxy_ready" -ne 1 ]; then
+          echo "Caddy reverse-proxy (https://tiled.nsls2.bnl.gov) did not become ready within 30 seconds"
+          cat /tmp/caddy.log || true
+          exit 1
+        fi
+
+
+        # Phase 3: API server through caddy reverse-proxy + TLS.
+        api_ready=0
+        for i in {1..30}; do
+          if curl --silent --fail --cacert /tmp/tiled.crt \
+            https://api.nsls2.bnl.gov/v1/facility/nsls2/cycles/current >/dev/null 2>&1; then
+            api_ready=1
+            break
+          fi
+          sleep 1
+        done
+        if [ "$api_ready" -ne 1 ]; then
+          echo "Mock API server (https://api.nsls2.bnl.gov) did not become ready within 30 seconds"
+          cat /tmp/caddy.log || true
+          exit 1
+        fi
+
+        # Write the nsls2 profile ourselves so it carries the api_key via a
+        # preset Authorization header; `tiled profile create` has no api-key
+        # option, and profiles like cms call `from_profile("nsls2", username=None)`
+        # which otherwise tries anonymous access and fails against our
+        # key-protected mock. `api_key` is not an allowed top-level field in
+        # the profile schema, but `headers` is.
+        mkdir -p "$HOME/.config/tiled/profiles"
+        cat > "$HOME/.config/tiled/profiles/nsls2.yml" <<EOF
+        nsls2:
+          uri: https://tiled.nsls2.bnl.gov
+          headers:
+            Authorization: "Apikey ${TILED_SERVER_API_KEY}"
+        EOF
+
+        python3 -c "
+        import os
+        from tiled.client import from_profile
+        tla = os.getenv('BEAMLINE_ACRONYM', 'xyz').lower()
+        TLA = tla.upper()
+        client = from_profile('nsls2', api_key=os.getenv(f'TILED_BLUESKY_WRITING_API_KEY_{TLA}', 'secret'))
+        client.create_container(tla).create_container('raw', specs=['CatalogOfBlueskyRuns'])
+        print(client[tla]['raw'])"
+      shell: bash

@@ -1,0 +1,47 @@
+name: 'Start Tiled server and create profiles'
+description: 'Starts the Tiled server and creates profiles'
+runs:
+  using: 'composite'
+  steps:
+    - run: |
+        # Point per-endstation redis hostname and legacy info DNS at localhost
+        echo "127.0.0.1 ${REDIS_HOST}" | sudo tee -a /etc/hosts
+        echo "127.0.0.1 info.${BEAMLINE_ACRONYM}.nsls2.bnl.gov" | sudo tee -a /etc/hosts
+        echo "127.0.0.1 tiled.nsls2.bnl.gov" | sudo tee -a /etc/hosts
+        echo "127.0.0.1 api.nsls2.bnl.gov" | sudo tee -a /etc/hosts
+        for i in {1..3}; do
+            echo "127.0.0.1 mongo${i}.nsls2.bnl.gov" | sudo tee -a /etc/hosts
+        done
+
+        sudo apt-get install -y -qq redis-tools stunnel4
+        redis-cli -h ${REDIS_HOST} set "cycle" "\"2025-2\""
+        redis-cli -h ${REDIS_HOST} set "data_session" "\"pass-000000\""
+
+        # Create Redis secret file for profiles that require it with redis_ssl=True.
+        # Our local Redis has no auth, but nslsii.configure_base() still tries to read
+        # the secret file if redis_ssl is enabled. Use empty password for local/test.
+        sudo mkdir -p /etc/bluesky
+        echo "" | sudo tee /etc/bluesky/redis.secret
+        sudo chmod 644 /etc/bluesky/redis.secret
+
+        # Use stunnel to wrap Redis with TLS. Profiles that enable redis_ssl=True
+        # expect to connect on port 6380. Generate a self-signed cert for the Redis
+        # hostname and run stunnel to terminate TLS on 6380, forwarding to :6379.
+        openssl req -x509 -newkey rsa:2048 -sha256 -days 1 -nodes \
+          -keyout /tmp/redis.key \
+          -out /tmp/redis.crt \
+          -subj "/CN=redis" \
+          -addext "subjectAltName=DNS:${REDIS_HOST},IP:127.0.0.1"
+
+        sudo tee /etc/stunnel/stunnel.conf > /dev/null << 'EOF'
+        cert = /tmp/redis.crt
+        key = /tmp/redis.key
+
+        [redis]
+        accept = 127.0.0.1:6380
+        connect = 127.0.0.1:6379
+        EOF
+
+        sudo service stunnel4 restart
+        sleep 1      
+      shell: bash
