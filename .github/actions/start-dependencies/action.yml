@@ -1,0 +1,172 @@
+name: 'Start dependencies'
+description: "Starts the necessary dependencies for testing beamline profiles including blackhole IOC, Tiled, pyOlog, databroker, and Kafka"
+runs:
+  using: 'composite'
+  steps:
+    - name: Endstation env vars
+      shell: bash -leo pipefail {0}
+      run: |
+        # Runs on the setup-python interpreter so it does not depend on the
+        # profile's pixi env (which may not include caproto).
+        python3 -m pip install -U caproto
+
+        # nohup + disown so the IOC survives past this step; record its PID
+        # for a later cleanup step. Each workflow step runs in a fresh shell,
+        # so an EXIT trap here would kill the IOC immediately.
+        nohup python3 $GITHUB_ACTION_PATH/spoof_beamline.py< <(echo "") \
+            > /tmp/blackhole_ioc.log 2>&1 &
+        IOC_PID=$!
+        disown
+
+        echo "BLACKHOLE_IOC_PID=${IOC_PID}" >> $GITHUB_ENV
+        caproto_repeater_path="$(command -v caproto-repeater)"
+
+        test -n "$caproto_repeater_path"
+        sudo ln -svf "$caproto_repeater_path" "/bin/caRepeater"    
+  
+    - name: Start tiled, kafka, databroker, and pyOlog services
+      shell: bash -leo pipefail {0}
+      run: |
+        # This does not work, I believe this will have to be a path to each of the config/.yml files stored locally
+        # perhaps this path should be a input to the action so we do not need to have this entire code in the ci 
+        cp -v "$GITHUB_WORKSPACE/configs/pyOlog.conf" "$HOME/.pyOlog.conf"
+
+        databroker_conf_dir="$HOME/.config/databroker"
+        mkdir -v -p ${databroker_conf_dir}
+
+        # Same comments about this
+        cp -v "$GITHUB_WORKSPACE/configs/databroker.yml" "${databroker_conf_dir}/_legacy_config.yml"
+
+        # We get the beamline acroynm from earlier on in the workflow so I do not believe that it has to be an input
+        cp -v ${databroker_conf_dir}/_legacy_config.yml ${databroker_conf_dir}/${BEAMLINE_ACRONYM}.yml
+
+        tiled_profiles_dir="$HOME/.config/tiled/profiles/"
+        mkdir -v -p "${tiled_profiles_dir}"
+        cat << EOF > ${tiled_profiles_dir}/profiles.yml
+        ${ENDSTATION_ACRONYM}:
+          direct:
+            authentication:
+              allow_anonymous_access: true
+            trees:
+            - tree: databroker.mongo_normalized:Tree.from_uri
+              path: /
+              args:
+                uri: mongodb://localhost:27017/metadatastore-local
+                asset_registry_uri: mongodb://localhost:27017/asset-registry-local
+        EOF
+
+        sudo mkdir -v -p /etc/bluesky/
+        cat << EOF | sudo tee /etc/bluesky/kafka.yml
+        ---
+          abort_run_on_kafka_exception: false
+          bootstrap_servers:
+            - 127.0.0.1:9092
+          runengine_producer_config:
+            security.protocol: PLAINTEXT
+        EOF
+
+    - name: Start Redis
+      uses: supercharge/redis-github-action@ea9b21c6ecece47bd99595c532e481390ea0f044 # 1.8.0
+      with:
+        redis-version: '6'
+
+    - name: Start MongoDB
+      uses: supercharge/mongodb-github-action@5a87bd81f88e2a8b195f8b7b656f5cda1350815a # 1.11.0
+      with:
+        mongodb-version: '4.4'
+
+    - name: Start Kafka
+      shell: bash -leo pipefail {0}
+      run: |
+        # Single-node KRaft broker on localhost:9092 to satisfy the Kafka config
+        # written to /etc/bluesky/kafka.yml and BLUESKY_KAFKA_BOOTSTRAP_SERVERS.
+        docker run -d --name kafka \
+          -p 9092:9092 -p 9093:9093 \
+          -e KAFKA_NODE_ID=1 \
+          -e KAFKA_PROCESS_ROLES=broker,controller \
+          -e KAFKA_LISTENERS=PLAINTEXT://:9092,CONTROLLER://:9093 \
+          -e KAFKA_ADVERTISED_LISTENERS=PLAINTEXT://localhost:9092 \
+          -e KAFKA_CONTROLLER_LISTENER_NAMES=CONTROLLER \
+          -e KAFKA_CONTROLLER_QUORUM_VOTERS=1@localhost:9093 \
+          -e KAFKA_LISTENER_SECURITY_PROTOCOL_MAP=CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT \
+          -e KAFKA_INTER_BROKER_LISTENER_NAME=PLAINTEXT \
+          -e KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR=1 \
+          -e KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR=1 \
+          -e KAFKA_TRANSACTION_STATE_LOG_MIN_ISR=1 \
+          apache/kafka:3.9.0
+
+        ready=0
+        for i in {1..60}; do
+          if docker exec kafka /opt/kafka/bin/kafka-broker-api-versions.sh \
+              --bootstrap-server localhost:9092 >/dev/null 2>&1; then
+            ready=1
+            break
+          fi
+          sleep 1
+        done
+        if [ "$ready" -ne 1 ]; then
+          echo "Kafka did not become ready within 60 seconds"
+          docker logs kafka || true
+          exit 1
+        fi
+        echo "Kafka broker is ready"
+
+    - name: Configure DNS and seed Redis
+      shell: bash -leo pipefail {0}
+      run: |
+        # Point per-endstation redis hostname and legacy info DNS at localhost
+        echo "127.0.0.1 ${REDIS_HOST}" | sudo tee -a /etc/hosts
+        echo "127.0.0.1 info.${BEAMLINE_ACRONYM}.nsls2.bnl.gov" | sudo tee -a /etc/hosts
+        echo "127.0.0.1 tiled.nsls2.bnl.gov" | sudo tee -a /etc/hosts
+        echo "127.0.0.1 api.nsls2.bnl.gov" | sudo tee -a /etc/hosts
+        for i in {1..3}; do
+            echo "127.0.0.1 mongo${i}.nsls2.bnl.gov" | sudo tee -a /etc/hosts
+        done
+
+        sudo apt-get install -y -qq redis-tools stunnel4
+        redis-cli -h ${REDIS_HOST} set "cycle" "\"2025-2\""
+        redis-cli -h ${REDIS_HOST} set "data_session" "\"pass-000000\""
+
+        # Create Redis secret file for profiles that require it with redis_ssl=True.
+        # Our local Redis has no auth, but nslsii.configure_base() still tries to read
+        # the secret file if redis_ssl is enabled. Use empty password for local/test.
+        sudo mkdir -p /etc/bluesky
+        echo "" | sudo tee /etc/bluesky/redis.secret
+        sudo chmod 644 /etc/bluesky/redis.secret
+
+        # Use stunnel to wrap Redis with TLS. Profiles that enable redis_ssl=True
+        # expect to connect on port 6380. Generate a self-signed cert for the Redis
+        # hostname and run stunnel to terminate TLS on 6380, forwarding to :6379.
+        openssl req -x509 -newkey rsa:2048 -sha256 -days 1 -nodes \
+          -keyout /tmp/redis.key \
+          -out /tmp/redis.crt \
+          -subj "/CN=redis" \
+          -addext "subjectAltName=DNS:${REDIS_HOST},IP:127.0.0.1"
+
+        sudo tee /etc/stunnel/stunnel.conf > /dev/null << 'EOF'
+        cert = /tmp/redis.crt
+        key = /tmp/redis.key
+
+        [redis]
+        accept = 127.0.0.1:6380
+        connect = 127.0.0.1:6379
+        EOF
+
+        sudo service stunnel4 restart
+        sleep 1     
+
+    - name: Start Tiled
+      uses: ./.github/actions/start-dependencies/start-tiled
+
+
+    - name: Apply auto settings
+      shell: bash -leo pipefail {0}
+      run: |
+        if [ -f "${CLONED_REPO}/.ci/auto_settings.sav" ]; then
+          while IFS= read -r line; do
+            if [ -n "$line" ]; then
+                caproto-put $line
+            fi
+          done < "${CLONED_REPO}/.ci/auto_settings.sav"
+        fi
+

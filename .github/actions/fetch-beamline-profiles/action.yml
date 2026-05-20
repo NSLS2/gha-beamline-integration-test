@@ -1,0 +1,57 @@
+name: 'Fetch beamline profiles'
+description: "Clones profile collection and installs its specific pixi profile environment"
+runs:
+  using: 'composite'
+  steps:
+    - name: Clone profile collection
+      shell: bash -leo pipefail {0}
+      run: |
+        REPO_NAME="${{ matrix.repo }}"
+        BRANCH="${{ matrix.branch || 'main' }}"
+        export CLONED_REPO="$HOME/${REPO_NAME}"
+        echo "CLONED_REPO=${CLONED_REPO}" >> $GITHUB_ENV
+        git clone -b "${BRANCH}" "https://github.com/NSLS2/${REPO_NAME}" ${CLONED_REPO}
+
+    - name: Install pixi profile environment
+      shell: bash -leo pipefail {0}
+      run: |
+        pixi --version
+        pixi install --manifest-path ${CLONED_REPO}/pixi.toml -e ${{ matrix.pixi-env }}
+        
+    - name: Run beamline-specific steps
+      shell: bash -leo pipefail {0}
+      run: |
+        if [ -f "${CLONED_REPO}/.ci/bl-specific.sh" ]; then
+            # Activate the profile's pixi env so the script inherits its PATH/env.
+            eval "$(pixi shell-hook --manifest-path ${CLONED_REPO}/pixi.toml -e ${{ matrix.pixi-env }})"
+            # Non-interactive CI shells need the conda hook for `conda activate`.
+            if command -v conda >/dev/null 2>&1; then
+                eval "$(conda shell.bash hook)"
+            fi
+            echo "Sourcing ${CLONED_REPO}/.ci/bl-specific.sh"
+            cd "${CLONED_REPO}"
+            source ".ci/bl-specific.sh"
+        fi
+
+    - name: Check if LICENSE file exists
+      shell: bash -leo pipefail {0}
+      run: |
+        echo "::group::Checking for LICENSE file"
+        if [ ! -f "${CLONED_REPO}/LICENSE" ]; then
+            echo "LICENSE file not found in ${CLONED_REPO}. Exiting..."
+            exit 1
+        else
+            cat "${CLONED_REPO}/LICENSE"
+        fi
+        echo "::endgroup::"
+
+    - name: Check if LICENSE has BNL
+      shell: bash -leo pipefail {0}
+      run: |
+        echo "::group::Checking for BNL in LICENSE file"
+        if ! grep -q "Brookhaven National Laboratory" "${CLONED_REPO}/LICENSE"; then
+            echo "LICENSE file does not contain 'Brookhaven National Laboratory'. Exiting..."
+            exit 1
+        fi
+        echo "::endgroup::"
+
