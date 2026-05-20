@@ -3,13 +3,19 @@ description: "Start tiled, kafka, databroker, and pyOlog services"
 runs:
   using: 'composite'
   steps:
-  # I feel like perhaps these services could be seperated out for one each?
+  # I feel like perhaps these services could be seperated out for one each so it can be customizable
     - run: |
+        # This does not work, I believe this will have to be a path to each of the config/.yml files stored locally
+        # perhaps this path should be a input to the action so we do not need to have this entire code in the ci 
         cp -v "$GITHUB_WORKSPACE/configs/pyOlog.conf" "$HOME/.pyOlog.conf"
 
         databroker_conf_dir="$HOME/.config/databroker"
         mkdir -v -p ${databroker_conf_dir}
+
+        # Same comments about this
         cp -v "$GITHUB_WORKSPACE/configs/databroker.yml" "${databroker_conf_dir}/_legacy_config.yml"
+
+        # We get the beamline acroynm from earlier on in the workflow so I do not believe that it has to be an input
         cp -v ${databroker_conf_dir}/_legacy_config.yml ${databroker_conf_dir}/${BEAMLINE_ACRONYM}.yml
 
         tiled_profiles_dir="$HOME/.config/tiled/profiles/"

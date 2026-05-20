@@ -84,12 +84,7 @@ jobs:
       - name: Configure Tiled, pyOlog, databroker, and Kafka
         uses: ./.github/actions/configure-services
 
-      - name: Configure DNS and seed Redis
-        uses: ./.github/actions/configure-dns
-   
-
-        
-    # Start services
+    # Start up services
       - name: Start Redis
         uses: supercharge/redis-github-action@ea9b21c6ecece47bd99595c532e481390ea0f044 # 1.8.0
         with:
@@ -106,8 +101,10 @@ jobs:
       - name: Start Tiled
         uses: ./.github/actions/start-tiled
 
-
-
+    # Configure services
+      - name: Configure DNS and seed Redis
+        uses: ./.github/actions/configure-dns
+   
       - name: Apply auto settings
         shell: bash -leo pipefail {0}
         run: |
