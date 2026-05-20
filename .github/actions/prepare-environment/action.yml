@@ -1,8 +1,28 @@
-name: 'Prepare environment'
-description: "Prepares the environment for beamline profiles by getting profile env variables and setting up beamline directories"
+name: Prepare environment
+description: Set beamline-specific environment variables and repository info
+
+inputs:
+  repo:
+    required: true
+  branch:
+    required: true
+  redis-host:
+    required: true
+  endstation:
+    required: true
+
 runs:
-  using: 'composite'
+  using: composite
   steps:
+    - name: Export environment variables
+      shell: bash
+      run: |
+        echo "CLONED_REPO=/home/runner/${{ inputs.repo }}" >> "$GITHUB_ENV"
+        echo "BEAMLINE_REPO=${{ inputs.repo }}" >> "$GITHUB_ENV"
+        echo "BEAMLINE_BRANCH=${{ inputs.branch }}" >> "$GITHUB_ENV"
+        echo "REDIS_HOST=${{ inputs.redis-host }}" >> "$GITHUB_ENV"
+        echo "ENDSTATION=${{ inputs.endstation }}" >> "$GITHUB_ENV"
+        
     - name: Endstation env vars
       shell: bash -leo pipefail {0}
       run: |

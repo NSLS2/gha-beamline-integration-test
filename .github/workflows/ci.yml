@@ -46,6 +46,11 @@ jobs:
 
       - name: Beamline-specific, gets env vars and repo info
         uses: ./.github/actions/prepare-environment
+        with:
+          repo: ${{ matrix.repo }}
+          branch: ${{ matrix.branch }}
+          redis-host: ${{ matrix.redis-host }}
+          endstation: ${{ matrix.endstation }}
 
       - name: Start dependencies
         uses: ./.github/actions/start-dependencies
