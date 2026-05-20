@@ -1,5 +1,5 @@
-name: 'Start Tiled server and create profiles'
-description: 'Starts the Tiled server and creates profiles'
+name: 'Start main services'
+description: "Start tiled, kafka, databroker, and pyOlog services"
 runs:
   using: 'composite'
   steps:
