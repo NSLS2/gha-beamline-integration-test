@@ -11,7 +11,7 @@ runs:
         # nohup + disown so the IOC survives past this step; record its PID
         # for a later cleanup step. Each workflow step runs in a fresh shell,
         # so an EXIT trap here would kill the IOC immediately.
-        nohup python3 $GITHUB_ACTION_PATH/actions/start-blackhole_ioc/spoof_beamline.py< <(echo "") \
+        nohup python3 $GITHUB_ACTION_PATH/spoof_beamline.py< <(echo "") \
             > /tmp/blackhole_ioc.log 2>&1 &
         IOC_PID=$!
         disown
