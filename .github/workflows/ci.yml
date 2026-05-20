@@ -102,9 +102,9 @@ jobs:
       - name: Configure DNS and seed Redis
         uses: ./.github/actions/configure-dns
    
-        
+
     # Startung Tiled
-       - name: Start Tiled
+      - name: Start Tiled
         uses: ./.github/actions/start-tiled
 
 
