@@ -97,14 +97,17 @@ jobs:
 
       - name: Start Kafka
         uses: ./.github/actions/start-kafka
-        
-      - name: Start Tiled
-        uses: ./.github/actions/start-tiled
 
     # Configure services
       - name: Configure DNS and seed Redis
         uses: ./.github/actions/configure-dns
    
+        
+    # Startung Tiled
+       - name: Start Tiled
+        uses: ./.github/actions/start-tiled
+
+
       - name: Apply auto settings
         shell: bash -leo pipefail {0}
         run: |
