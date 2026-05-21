@@ -6,21 +6,26 @@ runs:
     - name: Clone profile collection
       shell: bash -leo pipefail {0}
       run: |
+        echo "::group::Clone profile collection"
         REPO_NAME="${{ matrix.repo }}"
         BRANCH="${{ matrix.branch || 'main' }}"
         export CLONED_REPO="$HOME/${REPO_NAME}"
         echo "CLONED_REPO=${CLONED_REPO}" >> $GITHUB_ENV
         git clone -b "${BRANCH}" "https://github.com/NSLS2/${REPO_NAME}" ${CLONED_REPO}
+        echo "::endgroup::"
 
     - name: Install pixi profile environment
       shell: bash -leo pipefail {0}
       run: |
+        echo "::group::Install pixi profile environment"
         pixi --version
         pixi install --manifest-path ${CLONED_REPO}/pixi.toml -e ${{ matrix.pixi-env }}
+        echo "::endgroup::"
         
     - name: Run beamline-specific steps
       shell: bash -leo pipefail {0}
       run: |
+        echo "::group::Run beamline-specific steps"
         if [ -f "${CLONED_REPO}/.ci/bl-specific.sh" ]; then
             # Activate the profile's pixi env so the script inherits its PATH/env.
             eval "$(pixi shell-hook --manifest-path ${CLONED_REPO}/pixi.toml -e ${{ matrix.pixi-env }})"
@@ -32,6 +37,7 @@ runs:
             cd "${CLONED_REPO}"
             source ".ci/bl-specific.sh"
         fi
+        echo "::endgroup::"
 
     - name: Check if LICENSE file exists
       shell: bash -leo pipefail {0}
