@@ -704,7 +704,7 @@ runs:
 
         if [ "${ENV_READY}" == "true" ]; then
             echo "::group::Available plans and devices"
-            pixi run -e qs --manifest-path "${CLONED_REPO}/pixi.toml" qserver plans existing || true
+            pixi run -e qs --manifest-path "${CLONED_REPO}/pixi.toml" qserver allowed plans || true
             echo "::endgroup::"
         fi
 
