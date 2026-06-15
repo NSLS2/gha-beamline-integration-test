@@ -629,7 +629,7 @@ runs:
 
         MPLBACKEND=agg pixi run -e qs --manifest-path "${CLONED_REPO}/pixi.toml" \
             start-re-manager \
-            --startup-dir "${CLONED_REPO}/startup" \
+            --startup-profile test \
             --use-ipython-kernel ON \
             --ipython-matplotlib agg \
             --redis-addr 127.0.0.1:6379 \
