@@ -17,9 +17,12 @@ jobs:
         pixi-env: [terminal] # TODO: re-enable [terminal, qs] when ready to test queueserver
         endstation:
           - csx
+          - iss
+          - cdi
         include:
           - { endstation: csx, redis-host: xf23id1-csx-redis1.nsls2.bnl.gov, repo: csx-profile-collection, branch: main }
-
+          - { endstation: iss, redis-host: xf23id1-iss-redis1.nsls2.bnl.gov, repo: iss-profile-collection, branch: main }
+          - { endstation: cdi, redis-host: xf23id1-cdi-redis1.nsls2.bnl.gov, repo: cdi-profile-collection, branch: main }
     runs-on: ubuntu-latest
     steps:
       - name: Checkout test harness
