@@ -421,6 +421,11 @@ runs:
         echo "::group::Trusting the self-signed CA system-wide"
         sudo cp /etc/stunnel/redis.crt /usr/local/share/ca-certificates/nsls2-redis-mock.crt
         sudo update-ca-certificates
+        # Also create a combined CA bundle for Python environments that use their own
+        # CA store (e.g. conda/pixi-based Python with certifi), and export SSL_CERT_FILE
+        # so that Python's ssl module uses it regardless of the active Python installation.
+        cat /etc/ssl/certs/ca-certificates.crt /etc/stunnel/redis.crt | sudo tee /etc/stunnel/combined-ca-bundle.crt > /dev/null
+        echo "SSL_CERT_FILE=/etc/stunnel/combined-ca-bundle.crt" >> $GITHUB_ENV
         echo "::endgroup::"
 
         echo "::group::Configuring and starting stunnel (SSL port 6380 → plaintext port 6383)"
