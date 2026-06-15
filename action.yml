@@ -32,6 +32,10 @@ inputs:
     required: false
     description: 'beamline redis prefix'
     default: ''
+  test-queueserver:
+    required: false
+    description: 'Test bluesky-queueserver compatibility by starting RE Manager with the beamline startup files. Only supported for pixi-based repos that define a "qs" pixi environment.'
+    default: 'false'
 runs:
   using: 'composite'
 
@@ -609,6 +613,100 @@ runs:
             ipython --profile=test -c "$command"
         fi
         echo "::endgroup::"
+
+    - name: Test bluesky-queueserver compatibility
+      if: inputs.test-queueserver == 'true' && env.USE_PIXI == 'true'
+      shell: bash -leo pipefail {0}
+      run: |
+        echo "::group::Starting RE Manager"
+        cd "${CLONED_REPO}"
+
+        # Reuse (or start) Xvfb for headless matplotlib
+        export DISPLAY=:99
+        /sbin/start-stop-daemon --start --quiet --pidfile /tmp/custom_xvfb_99.pid --make-pidfile --background --exec /usr/bin/Xvfb -- :99 -ac -screen 0 1280x1024x16 2>/dev/null || true
+
+        RE_MANAGER_LOG=/tmp/re-manager.log
+
+        MPLBACKEND=agg pixi run -e qs --manifest-path "${CLONED_REPO}/pixi.toml" \
+            start-re-manager \
+            --startup-dir "${CLONED_REPO}/startup" \
+            --use-ipython-kernel ON \
+            --ipython-matplotlib agg \
+            --redis-addr 127.0.0.1:6379 \
+            --ignore-invalid-plans ON \
+            --zmq-publish-console ON \
+            > "${RE_MANAGER_LOG}" 2>&1 &
+        RE_MANAGER_PID=$!
+        echo "RE Manager started (PID ${RE_MANAGER_PID}), log: ${RE_MANAGER_LOG}"
+        echo "::endgroup::"
+
+        echo "::group::Waiting for RE Manager to become ready"
+        READY=false
+        for i in $(seq 1 30); do
+            status_output=$(pixi run -e qs --manifest-path "${CLONED_REPO}/pixi.toml" qserver status 2>/dev/null || true)
+            if echo "${status_output}" | python3 -c "import sys,json; d=json.load(sys.stdin); exit(0 if d.get('manager_state') == 'idle' else 1)" 2>/dev/null; then
+                echo "RE Manager is ready (attempt ${i})"
+                READY=true
+                break
+            fi
+            echo "Attempt ${i}/30: not ready yet, waiting 3s..."
+            sleep 3
+        done
+        if [ "${READY}" != "true" ]; then
+            echo "ERROR: RE Manager did not become ready within 90 seconds"
+            kill "${RE_MANAGER_PID}" 2>/dev/null || true
+            cat "${RE_MANAGER_LOG}"
+            exit 1
+        fi
+        echo "::endgroup::"
+
+        echo "::group::Opening RE Manager environment (loading startup files)"
+        pixi run -e qs --manifest-path "${CLONED_REPO}/pixi.toml" qserver environment open
+
+        # Wait for environment to become idle (startup files loaded)
+        ENV_READY=false
+        for i in $(seq 1 60); do
+            status_output=$(pixi run -e qs --manifest-path "${CLONED_REPO}/pixi.toml" qserver status 2>/dev/null || true)
+            env_state=$(echo "${status_output}" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('worker_environment_state','unknown'))" 2>/dev/null || echo "unknown")
+            echo "Attempt ${i}/60: worker_environment_state = ${env_state}"
+            if [ "${env_state}" == "idle" ]; then
+                echo "Environment is open and idle — startup files loaded successfully!"
+                ENV_READY=true
+                break
+            fi
+            if [ "${env_state}" == "failed" ]; then
+                echo "ERROR: Environment failed to open"
+                break
+            fi
+            sleep 3
+        done
+        echo "::endgroup::"
+
+        echo "::group::RE Manager environment status"
+        pixi run -e qs --manifest-path "${CLONED_REPO}/pixi.toml" qserver status || true
+        echo "::endgroup::"
+
+        if [ "${ENV_READY}" == "true" ]; then
+            echo "::group::Available plans and devices"
+            pixi run -e qs --manifest-path "${CLONED_REPO}/pixi.toml" qserver plans existing || true
+            echo "::endgroup::"
+        fi
+
+        echo "::group::Tearing down RE Manager"
+        pixi run -e qs --manifest-path "${CLONED_REPO}/pixi.toml" qserver environment close 2>/dev/null || true
+        sleep 2
+        kill "${RE_MANAGER_PID}" 2>/dev/null || true
+        echo "RE Manager stopped"
+        echo "::endgroup::"
+
+        echo "::group::RE Manager log"
+        cat "${RE_MANAGER_LOG}"
+        echo "::endgroup::"
+
+        if [ "${ENV_READY}" != "true" ]; then
+            echo "ERROR: bluesky-queueserver environment failed to open. See RE Manager log above."
+            exit 1
+        fi
 
     - name: Check bluesky logs
       if: always()
