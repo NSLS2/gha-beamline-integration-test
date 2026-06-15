@@ -65,7 +65,7 @@ runs:
 
         INI_FILE="${CLONED_REPO}/startup/utils/conf/ini.conf"
         if [ -f "${INI_FILE}" ]; then
-          sudo mkdir -p "/nsls2/data/${BEAMLINE_ACRONYM}/shared/config/bluesky"
+          mkdir -p "/nsls2/data/${BEAMLINE_ACRONYM}/shared/config/bluesky"
           ln -sfn "${CLONED_REPO}" "/nsls2/data/${BEAMLINE_ACRONYM}/shared/config/bluesky/profile_collection"
           ls -l "/nsls2/data/${BEAMLINE_ACRONYM}/shared/config/bluesky/profile_collection/startup/utils/conf/ini.conf"
         else
