@@ -634,6 +634,7 @@ runs:
             --ipython-matplotlib agg \
             --redis-addr 127.0.0.1:6379 \
             --ignore-invalid-plans ON \
+            --user-group-permissions-reload NEVER \
             --zmq-publish-console ON \
             > "${RE_MANAGER_LOG}" 2>&1 &
         RE_MANAGER_PID=$!
@@ -644,7 +645,7 @@ runs:
         READY=false
         for i in $(seq 1 30); do
             status_output=$(pixi run -e qs --manifest-path "${CLONED_REPO}/pixi.toml" qserver status 2>/dev/null || true)
-            if echo "${status_output}" | python3 -c "import sys,json; d=json.load(sys.stdin); exit(0 if d.get('manager_state') == 'idle' else 1)" 2>/dev/null; then
+            if echo "${status_output}" | grep -q "manager_state.*idle"; then
                 echo "RE Manager is ready (attempt ${i})"
                 READY=true
                 break
@@ -667,7 +668,13 @@ runs:
         ENV_READY=false
         for i in $(seq 1 60); do
             status_output=$(pixi run -e qs --manifest-path "${CLONED_REPO}/pixi.toml" qserver status 2>/dev/null || true)
-            env_state=$(echo "${status_output}" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('worker_environment_state','unknown'))" 2>/dev/null || echo "unknown")
+            if echo "${status_output}" | grep -q "worker_environment_state.*idle"; then
+                env_state="idle"
+            elif echo "${status_output}" | grep -q "worker_environment_state.*failed"; then
+                env_state="failed"
+            else
+                env_state="unknown"
+            fi
             echo "Attempt ${i}/60: worker_environment_state = ${env_state}"
             if [ "${env_state}" == "idle" ]; then
                 echo "Environment is open and idle — startup files loaded successfully!"
