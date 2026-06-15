@@ -36,6 +36,7 @@ runs:
         {
           echo "BEAMLINE_ACRONYM=${BEAMLINE_ACRONYM}"
           echo "ENDSTATION_ACRONYM=${{ matrix.endstation }}"
+          echo "PROFILE_COLLECTION_ROOT=${CLONED_REPO}" >> $GITHUB_ENV
           echo "REDIS_HOST=${{ matrix['redis-host'] }}"
           echo "QS_HOST=${{ matrix['qs-host'] }}"
           echo "TILED_BLUESKY_WRITING_API_KEY_${BEAMLINE_ACRONYM_UPPER}=secret"
@@ -55,6 +56,9 @@ runs:
         mkdir -v -p /nsls2/data/${BEAMLINE_ACRONYM}/shared/config/bluesky/logs
         mkdir -v -p /nsls2/data/${BEAMLINE_ACRONYM}-new
 
+        sudo mkdir -p "/nsls2/data/${BEAMLINE_ACRONYM}/shared/config/bluesky"
+        ln -sfn "${CLONED_REPO}" "/nsls2/data/${BEAMLINE_ACRONYM}/shared/config/bluesky/profile_collection"
+        ls -l "/nsls2/data/${BEAMLINE_ACRONYM}/shared/config/bluesky/profile_collection/startup/utils/conf/ini.conf"
         export LOGS_HOME="$HOME"
         if [ "${BEAMLINE_ACRONYM}" == "srx" ]; then
             export LOGS_HOME="/home/xf05id1"
@@ -68,7 +72,6 @@ runs:
         fi
         echo "LOGS_HOME=${LOGS_HOME}" >> $GITHUB_ENV
         mkdir -v -p ${LOGS_HOME}/.cache/bluesky/log/
-
         mkdir -v -p $HOME/.ipython/
         cp -rv "${CLONED_REPO}" $HOME/.ipython/profile_test
         rm -fv ~/.ipython/profile_test/startup/*.py
