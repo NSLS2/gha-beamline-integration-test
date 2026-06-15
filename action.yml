@@ -444,8 +444,20 @@ runs:
         export BEAMLINE_REDIS_ADDRESS="${beamline_redis_address}"
         echo "BEAMLINE_REDIS_ADDRESS=${BEAMLINE_REDIS_ADDRESS}" >> $GITHUB_ENV
         sudo echo "127.0.0.1 ${BEAMLINE_REDIS_ADDRESS}" | sudo tee -a /etc/hosts
-        sudo echo "127.0.0.1 xf12id2-smi-redis1.nsls2.bnl.gov" | sudo tee -a /etc/hosts
-        sudo echo "127.0.0.1 xf23id2-ios-redis1.nsls2.bnl.gov" | sudo tee -a /etc/hosts
+        # Dynamically detect custom Redis hostnames from nslsii.configure_base() calls
+        # in the beamline's startup files and register them in /etc/hosts.
+        custom_redis_hosts=$(python3 "${GITHUB_ACTION_PATH}/parse_redis_hosts.py" "${CLONED_REPO}" 2>/dev/null || true)
+        if [ -n "${custom_redis_hosts}" ]; then
+            echo "Detected custom Redis hostnames:"
+            echo "${custom_redis_hosts}"
+            while IFS= read -r host; do
+                [ -z "${host}" ] && continue
+                sudo bash -c "echo '127.0.0.1 ${host}' >> /etc/hosts"
+                echo "Registered: 127.0.0.1 ${host}"
+            done <<< "${custom_redis_hosts}"
+        else
+            echo "No custom Redis hostnames found in startup files."
+        fi
         for i in {1..3}; do
             sudo echo "127.0.0.1 mongo${i}.nsls2.bnl.gov" | sudo tee -a /etc/hosts
         done
@@ -459,10 +471,14 @@ runs:
         echo "" | telnet ${BEAMLINE_REDIS_ADDRESS} 6379
         echo "Telnetting to ${BEAMLINE_REDIS_ADDRESS}:6380..."
         echo "" | telnet ${BEAMLINE_REDIS_ADDRESS} 6380
-        echo "Telnetting to xf12id2-smi-redis1.nsls2.bnl.gov:6380..."
-        echo "" | telnet xf12id2-smi-redis1.nsls2.bnl.gov 6380
-        echo "Telnetting to xf23id2-ios-redis1.nsls2.bnl.gov:6380..."
-        echo "" | telnet xf23id2-ios-redis1.nsls2.bnl.gov 6380
+        # Telnet test each dynamically detected custom Redis hostname
+        if [ -n "${custom_redis_hosts}" ]; then
+            while IFS= read -r host; do
+                [ -z "${host}" ] && continue
+                echo "Telnetting to ${host}:6380..."
+                echo "" | telnet "${host}" 6380
+            done <<< "${custom_redis_hosts}"
+        fi
         for i in {1..3}; do
             echo "Pinging mongo${i}.nsls2.bnl.gov..."
             ping -c 5 mongo${i}.nsls2.bnl.gov
