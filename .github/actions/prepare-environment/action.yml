@@ -51,8 +51,15 @@ runs:
       shell: bash -leo pipefail {0}
       run: |
         sudo mkdir -v -p /nsls2/
-        sudo chown -v $USER: /nsls2/
-        mkdir -v -p /nsls2/data/${BEAMLINE_ACRONYM}/shared/config/RE-metadata
+        sudo chown -v "$USER:" /nsls2/
+
+        if [ "${ENDSTATION_ACRONYM}" = "fmx" ]; then
+          mkdir -p "${RUNNER_TEMP}/RE-metadata"
+          echo "RE_METADATA_DIR=${RUNNER_TEMP}/RE-metadata" >> "$GITHUB_ENV"
+        else
+          mkdir -v -p /nsls2/data/${BEAMLINE_ACRONYM}/shared/config/RE-metadata
+        fi
+
         mkdir -v -p /nsls2/data/${BEAMLINE_ACRONYM}/shared/config/bluesky/logs
         mkdir -v -p /nsls2/data/${BEAMLINE_ACRONYM}-new
 
