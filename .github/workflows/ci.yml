@@ -17,9 +17,11 @@ jobs:
         pixi-env: [terminal] # TODO: re-enable [terminal, qs] when ready to test queueserver
         endstation:
           - csx
+          - fmx
           - ixs
         include:
           - { endstation: csx, redis-host: xf23id1-csx-redis1.nsls2.bnl.gov, repo: csx-profile-collection, branch: main }
+          - { endstation: fmx, redis-host: xf17id2-fmx-redis1.nsls2.bnl.gov, repo: fmx-profile-collection, branch: pixi_2026C2 }
           - { endstation: ixs, redis-host: xf23id1-ixs-redis1.nsls2.bnl.gov, repo: jessica-moylan/ixs-profile-collection, branch: LICENSE }
     runs-on: ubuntu-latest
     steps:
