@@ -17,7 +17,9 @@ runs:
     - name: Export environment variables
       shell: bash
       run: |
-        echo "CLONED_REPO=/home/runner/${{ inputs.repo }}" >> "$GITHUB_ENV"
+        REPO_INPUT="${{ inputs.repo }}"
+        REPO_NAME="${REPO_INPUT##*/}"
+        echo "CLONED_REPO=/home/runner/${REPO_NAME}" >> "$GITHUB_ENV"
         echo "BEAMLINE_REPO=${{ inputs.repo }}" >> "$GITHUB_ENV"
         echo "BEAMLINE_BRANCH=${{ inputs.branch }}" >> "$GITHUB_ENV"
         echo "REDIS_HOST=${{ inputs.redis-host }}" >> "$GITHUB_ENV"

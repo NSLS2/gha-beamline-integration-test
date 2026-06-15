@@ -20,7 +20,7 @@ jobs:
           - ixs
         include:
           - { endstation: csx, redis-host: xf23id1-csx-redis1.nsls2.bnl.gov, repo: csx-profile-collection, branch: main }
-          - { endstation: ixs, redis-host: xf23id1-ixs-redis1.nsls2.bnl.gov, repo: ixs-profile-collection, branch: bump-ophyd }
+          - { endstation: ixs, redis-host: xf23id1-ixs-redis1.nsls2.bnl.gov, repo: jessica-moylan/ixs-profile-collection, branch: LICENSE }
     runs-on: ubuntu-latest
     steps:
       - name: Checkout test harness

@@ -7,11 +7,18 @@ runs:
       shell: bash -leo pipefail {0}
       run: |
         echo "::group::Clone profile collection"
-        REPO_NAME="${{ matrix.repo }}"
+        REPO_INPUT="${{ matrix.repo }}"
+        if [[ "${REPO_INPUT}" == */* ]]; then
+            REPO_SLUG="${REPO_INPUT}"
+            REPO_NAME="${REPO_INPUT##*/}"
+        else
+            REPO_SLUG="NSLS2/${REPO_INPUT}"
+            REPO_NAME="${REPO_INPUT}"
+        fi
         BRANCH="${{ matrix.branch || 'main' }}"
         export CLONED_REPO="$HOME/${REPO_NAME}"
         echo "CLONED_REPO=${CLONED_REPO}" >> $GITHUB_ENV
-        git clone -b "${BRANCH}" "https://github.com/NSLS2/${REPO_NAME}" ${CLONED_REPO}
+        git clone -b "${BRANCH}" "https://github.com/${REPO_SLUG}" ${CLONED_REPO}
         echo "::endgroup::"
 
     - name: Install pixi profile environment
