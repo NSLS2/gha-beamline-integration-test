@@ -627,6 +627,16 @@ runs:
 
         RE_MANAGER_LOG=/tmp/re-manager.log
 
+        # Install default user_group_permissions.yaml from bluesky-queueserver
+        # if the profile doesn't provide one. The file is required by RE Manager.
+        PERMISSIONS_FILE="${HOME}/.ipython/profile_test/startup/user_group_permissions.yaml"
+        if [ ! -f "${PERMISSIONS_FILE}" ]; then
+            echo "Installing default user_group_permissions.yaml from bluesky-queueserver"
+            curl -fsSL \
+                "https://raw.githubusercontent.com/bluesky/bluesky-queueserver/main/bluesky_queueserver/profile_collection_sim/user_group_permissions.yaml" \
+                -o "${PERMISSIONS_FILE}"
+        fi
+
         MPLBACKEND=agg pixi run -e qs --manifest-path "${CLONED_REPO}/pixi.toml" \
             start-re-manager \
             --startup-profile test \
@@ -634,7 +644,6 @@ runs:
             --ipython-matplotlib agg \
             --redis-addr 127.0.0.1:6379 \
             --ignore-invalid-plans ON \
-            --user-group-permissions-reload NEVER \
             --zmq-publish-console ON \
             > "${RE_MANAGER_LOG}" 2>&1 &
         RE_MANAGER_PID=$!
