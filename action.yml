@@ -627,14 +627,16 @@ runs:
 
         RE_MANAGER_LOG=/tmp/re-manager.log
 
-        # Install default user_group_permissions.yaml from bluesky-queueserver
-        # if the profile doesn't provide one. The file is required by RE Manager.
-        PERMISSIONS_FILE="${HOME}/.ipython/profile_test/startup/user_group_permissions.yaml"
-        if [ ! -f "${PERMISSIONS_FILE}" ]; then
-            echo "Installing default user_group_permissions.yaml from bluesky-queueserver"
+        # Use the repo's user_group_permissions.yaml if present; otherwise fall back to
+        # the default from bluesky-queueserver. The file is required by RE Manager.
+        QS_PERMISSIONS_FILE="${CLONED_REPO}/startup/user_group_permissions.yaml"
+        if [ ! -f "${QS_PERMISSIONS_FILE}" ]; then
+            echo "Downloading default user_group_permissions.yaml from bluesky-queueserver"
             curl -fsSL \
                 "https://raw.githubusercontent.com/bluesky/bluesky-queueserver/main/bluesky_queueserver/profile_collection_sim/user_group_permissions.yaml" \
-                -o "${PERMISSIONS_FILE}"
+                -o "${QS_PERMISSIONS_FILE}"
+        else
+            echo "Using repo's startup/user_group_permissions.yaml"
         fi
 
         # The main test step removes *.py from the profile startup dir after testing,
@@ -652,6 +654,8 @@ runs:
             --redis-addr 127.0.0.1:6379 \
             --ignore-invalid-plans ON \
             --zmq-publish-console ON \
+            --existing-plans-devices "${CLONED_REPO}/startup/existing_plans_and_devices.yaml" \
+            --user-group-permissions "${QS_PERMISSIONS_FILE}" \
             > "${RE_MANAGER_LOG}" 2>&1 &
         RE_MANAGER_PID=$!
         echo "RE Manager started (PID ${RE_MANAGER_PID}), log: ${RE_MANAGER_LOG}"
@@ -773,6 +777,14 @@ runs:
             echo "ERROR: bluesky-queueserver environment failed to open. See RE Manager log above."
             exit 1
         fi
+
+    - name: Upload existing_plans_and_devices.yaml artifact
+      if: inputs.test-queueserver == 'true' && env.USE_PIXI == 'true'
+      uses: actions/upload-artifact@v4
+      with:
+        name: existing-plans-and-devices
+        path: ${{ env.CLONED_REPO }}/startup/existing_plans_and_devices.yaml
+        if-no-files-found: warn
 
     - name: Check bluesky logs
       if: always()
