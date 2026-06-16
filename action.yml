@@ -708,8 +708,20 @@ runs:
             pixi run -e qs --manifest-path "${CLONED_REPO}/pixi.toml" qserver permissions reload || true
             echo "::endgroup::"
 
+            echo "::group::Existing devices (discovered from startup files)"
+            pixi run -e qs --manifest-path "${CLONED_REPO}/pixi.toml" qserver existing devices || true
+            echo "::endgroup::"
+
             echo "::group::Existing plans (all discovered from startup files)"
-            pixi run -e qs --manifest-path "${CLONED_REPO}/pixi.toml" qserver existing plans || true
+            plans_output=$(pixi run -e qs --manifest-path "${CLONED_REPO}/pixi.toml" qserver existing plans 2>/dev/null || true)
+            echo "${plans_output}"
+            if echo "${plans_output}" | grep -q "'plans_existing': {}"; then
+                echo ""
+                echo "NOTE: No plans were discovered. This is likely because plan functions in"
+                echo "the startup files lack type annotations required by bluesky-queueserver."
+                echo "Adding type annotations or importing plans directly (e.g. 'from bluesky.plans import *')"
+                echo "would make plans discoverable. See pixi.toml [feature.qs] for context."
+            fi
             echo "::endgroup::"
 
             echo "::group::Allowed plans (filtered by user group permissions)"
