@@ -710,35 +710,7 @@ runs:
             # script that copies plans/devices from get_ipython().user_ns into globals()
             # (= self._re_namespace in exec context). update_lists=True (the default)
             # then calls existing_plans_and_devices_from_nspace on the populated dict.
-            cat > /tmp/qs_populate_namespace.py << 'PYEOF'
-# Copy plans and devices from the IPython kernel's user namespace into the
-# exec namespace (globals() == self._re_namespace in queueserver's worker).
-# This is a workaround for queueserver v0.0.23 + ipykernel namespace copy issue.
-import inspect
-try:
-    from bluesky.protocols import Readable, Flyable
-    _has_protocols = True
-except ImportError:
-    _has_protocols = False
-
-try:
-    from IPython import get_ipython as _get_ipython
-    _ip = _get_ipython()
-    if _ip is not None:
-        for _k, _v in list(_ip.user_ns.items()):
-            if _k.startswith('_'):
-                continue
-            _is_plan = inspect.isgeneratorfunction(_v)
-            _is_device = (
-                (_has_protocols and isinstance(_v, (Readable, Flyable))) or
-                (hasattr(_v, 'children') and not inspect.isclass(_v))
-            )
-            if _is_plan or _is_device:
-                globals()[_k] = _v
-except Exception as _e:
-    print(f"Namespace population warning: {_e}")
-PYEOF
-            pixi run -e qs --manifest-path "${CLONED_REPO}/pixi.toml" qserver script upload /tmp/qs_populate_namespace.py || true
+            pixi run -e qs --manifest-path "${CLONED_REPO}/pixi.toml" qserver script upload "${GITHUB_ACTION_PATH}/qs_populate_namespace.py" || true
 
             # Wait for the script task to complete (manager returns to idle)
             for i in $(seq 1 30); do
