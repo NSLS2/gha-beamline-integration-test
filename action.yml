@@ -639,12 +639,10 @@ runs:
 
         # The main test step removes *.py from the profile startup dir after testing,
         # so we need to copy them back before starting the RE Manager.
+        # NOTE: we do NOT copy .ci/drop-in.py — it uses relative paths that don't
+        #       work in the queueserver context (different working directory).
         echo "Copying startup files into IPython profile for RE Manager..."
         cp -v "${CLONED_REPO}"/startup/*.py "${HOME}/.ipython/profile_test/startup/" 2>/dev/null || true
-        # Copy any CI-specific drop-in if present
-        if [ -f "${CLONED_REPO}/.ci/drop-in.py" ]; then
-            cp -v "${CLONED_REPO}/.ci/drop-in.py" "${HOME}/.ipython/profile_test/startup/99-drop-in.py" || true
-        fi
 
         MPLBACKEND=agg pixi run -e qs --manifest-path "${CLONED_REPO}/pixi.toml" \
             start-re-manager \
@@ -682,9 +680,10 @@ runs:
         echo "::group::Opening RE Manager environment (loading startup files)"
         pixi run -e qs --manifest-path "${CLONED_REPO}/pixi.toml" qserver environment open
 
-        # Wait for environment to become idle (startup files loaded)
+        # Wait for environment to become idle (startup files loaded).
+        # Startup files include EPICS + Kafka connections; allow up to 5 minutes.
         ENV_READY=false
-        for i in $(seq 1 60); do
+        for i in $(seq 1 100); do
             status_output=$(pixi run -e qs --manifest-path "${CLONED_REPO}/pixi.toml" qserver status 2>/dev/null || true)
             if echo "${status_output}" | grep -q "worker_environment_state.*idle"; then
                 env_state="idle"
@@ -693,7 +692,7 @@ runs:
             else
                 env_state="unknown"
             fi
-            echo "Attempt ${i}/60: worker_environment_state = ${env_state}"
+            echo "Attempt ${i}/100: worker_environment_state = ${env_state}"
             if [ "${env_state}" == "idle" ]; then
                 echo "Environment is open and idle — startup files loaded successfully!"
                 ENV_READY=true
