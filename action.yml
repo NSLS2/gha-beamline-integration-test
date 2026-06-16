@@ -637,6 +637,15 @@ runs:
                 -o "${PERMISSIONS_FILE}"
         fi
 
+        # The main test step removes *.py from the profile startup dir after testing,
+        # so we need to copy them back before starting the RE Manager.
+        echo "Copying startup files into IPython profile for RE Manager..."
+        cp -v "${CLONED_REPO}"/startup/*.py "${HOME}/.ipython/profile_test/startup/" 2>/dev/null || true
+        # Copy any CI-specific drop-in if present
+        if [ -f "${CLONED_REPO}/.ci/drop-in.py" ]; then
+            cp -v "${CLONED_REPO}/.ci/drop-in.py" "${HOME}/.ipython/profile_test/startup/99-drop-in.py" || true
+        fi
+
         MPLBACKEND=agg pixi run -e qs --manifest-path "${CLONED_REPO}/pixi.toml" \
             start-re-manager \
             --startup-profile test \
