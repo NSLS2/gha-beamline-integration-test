@@ -709,18 +709,24 @@ runs:
             echo "::endgroup::"
 
             echo "::group::Existing devices (discovered from startup files)"
-            pixi run -e qs --manifest-path "${CLONED_REPO}/pixi.toml" qserver existing devices || true
+            devices_output=$(pixi run -e qs --manifest-path "${CLONED_REPO}/pixi.toml" qserver existing devices 2>/dev/null || true)
+            echo "${devices_output}"
             echo "::endgroup::"
 
             echo "::group::Existing plans (all discovered from startup files)"
             plans_output=$(pixi run -e qs --manifest-path "${CLONED_REPO}/pixi.toml" qserver existing plans 2>/dev/null || true)
             echo "${plans_output}"
-            if echo "${plans_output}" | grep -q "'plans_existing': {}"; then
+            if echo "${plans_output}" | grep -q "'plans_existing': {}" && echo "${devices_output}" | grep -q "'devices_existing': {}"; then
                 echo ""
-                echo "NOTE: No plans were discovered. This is likely because plan functions in"
-                echo "the startup files lack type annotations required by bluesky-queueserver."
-                echo "Adding type annotations or importing plans directly (e.g. 'from bluesky.plans import *')"
-                echo "would make plans discoverable. See pixi.toml [feature.qs] for context."
+                echo "NOTE: Both plans and devices are empty. This is expected when startup files"
+                echo "inject objects exclusively into the IPython user namespace via"
+                echo "  nslsii.configure_base(get_ipython().user_ns, ...)"
+                echo "bluesky-queueserver's plan/device discovery does not inspect the IPython"
+                echo "user_ns, so objects created this way are invisible to it."
+                echo "The startup files DID load successfully (see 'Startup code was successfully"
+                echo "loaded' in the RE Manager log). Full queueserver compatibility requires"
+                echo "exporting devices/plans as module-level names accessible outside user_ns."
+                echo "See pixi.toml [feature.qs] note: 'This section needs some development work'."
             fi
             echo "::endgroup::"
 
