@@ -703,8 +703,27 @@ runs:
         echo "::endgroup::"
 
         if [ "${ENV_READY}" == "true" ]; then
+            echo "::group::Refresh plan/device list from live namespace"
+            # queueserver discovers plans/devices BEFORE the IPython kernel loads startup files,
+            # so the initial list is always empty. Upload a trivial script with update_lists=True
+            # (the default) to force re-discovery from the now-populated namespace.
+            echo "# trigger plan/device re-discovery" > /tmp/qs_update_plans.py
+            pixi run -e qs --manifest-path "${CLONED_REPO}/pixi.toml" qserver script upload /tmp/qs_update_plans.py || true
+
+            # Wait for the script task to complete (manager returns to idle)
+            for i in $(seq 1 30); do
+                status_output=$(pixi run -e qs --manifest-path "${CLONED_REPO}/pixi.toml" qserver status 2>/dev/null || true)
+                if echo "${status_output}" | grep -q "manager_state.*idle"; then
+                    echo "Plan/device list refreshed (attempt ${i})"
+                    break
+                fi
+                echo "Waiting for plan refresh... attempt ${i}/30"
+                sleep 2
+            done
+            echo "::endgroup::"
+
             echo "::group::Reload permissions and plan list"
-            # After environment open, reload user permissions to regenerate the allowed-plans list.
+            # Regenerate allowed-plans list from the updated existing-plans list.
             pixi run -e qs --manifest-path "${CLONED_REPO}/pixi.toml" qserver permissions reload || true
             echo "::endgroup::"
 
@@ -716,17 +735,11 @@ runs:
             echo "::group::Existing plans (all discovered from startup files)"
             plans_output=$(pixi run -e qs --manifest-path "${CLONED_REPO}/pixi.toml" qserver existing plans 2>/dev/null || true)
             echo "${plans_output}"
-            if echo "${plans_output}" | grep -q "'plans_existing': {}" && echo "${devices_output}" | grep -q "'devices_existing': {}"; then
+            if echo "${plans_output}" | grep -q "'plans_existing': {}"; then
                 echo ""
-                echo "NOTE: Both plans and devices are empty. This is expected when startup files"
-                echo "inject objects exclusively into the IPython user namespace via"
-                echo "  nslsii.configure_base(get_ipython().user_ns, ...)"
-                echo "bluesky-queueserver's plan/device discovery does not inspect the IPython"
-                echo "user_ns, so objects created this way are invisible to it."
-                echo "The startup files DID load successfully (see 'Startup code was successfully"
-                echo "loaded' in the RE Manager log). Full queueserver compatibility requires"
-                echo "exporting devices/plans as module-level names accessible outside user_ns."
-                echo "See pixi.toml [feature.qs] note: 'This section needs some development work'."
+                echo "NOTE: No plans discovered. Check that plan functions are generator functions"
+                echo "(use 'yield from') and that their default values can be serialized with"
+                echo "ast.literal_eval. Run with --ignore-invalid-plans OFF for detailed errors."
             fi
             echo "::endgroup::"
 
