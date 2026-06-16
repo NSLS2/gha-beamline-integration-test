@@ -703,7 +703,16 @@ runs:
         echo "::endgroup::"
 
         if [ "${ENV_READY}" == "true" ]; then
-            echo "::group::Available plans and devices"
+            echo "::group::Reload permissions and plan list"
+            # After environment open, reload user permissions to regenerate the allowed-plans list.
+            pixi run -e qs --manifest-path "${CLONED_REPO}/pixi.toml" qserver permissions reload || true
+            echo "::endgroup::"
+
+            echo "::group::Existing plans (all discovered from startup files)"
+            pixi run -e qs --manifest-path "${CLONED_REPO}/pixi.toml" qserver existing plans || true
+            echo "::endgroup::"
+
+            echo "::group::Allowed plans (filtered by user group permissions)"
             pixi run -e qs --manifest-path "${CLONED_REPO}/pixi.toml" qserver allowed plans || true
             echo "::endgroup::"
         fi
