@@ -704,11 +704,41 @@ runs:
 
         if [ "${ENV_READY}" == "true" ]; then
             echo "::group::Refresh plan/device list from live namespace"
-            # queueserver discovers plans/devices BEFORE the IPython kernel loads startup files,
-            # so the initial list is always empty. Upload a trivial script with update_lists=True
-            # (the default) to force re-discovery from the now-populated namespace.
-            echo "# trigger plan/device re-discovery" > /tmp/qs_update_plans.py
-            pixi run -e qs --manifest-path "${CLONED_REPO}/pixi.toml" qserver script upload /tmp/qs_update_plans.py || true
+            # queueserver v0.0.23 passes user_ns to IPKernelApp, but ipykernel creates
+            # a COPY of the dict. The original self._re_namespace stays empty while the
+            # startup files populate the kernel's copy. Work around this by uploading a
+            # script that copies plans/devices from get_ipython().user_ns into globals()
+            # (= self._re_namespace in exec context). update_lists=True (the default)
+            # then calls existing_plans_and_devices_from_nspace on the populated dict.
+            cat > /tmp/qs_populate_namespace.py << 'PYEOF'
+# Copy plans and devices from the IPython kernel's user namespace into the
+# exec namespace (globals() == self._re_namespace in queueserver's worker).
+# This is a workaround for queueserver v0.0.23 + ipykernel namespace copy issue.
+import inspect
+try:
+    from bluesky.protocols import Readable, Flyable
+    _has_protocols = True
+except ImportError:
+    _has_protocols = False
+
+try:
+    from IPython import get_ipython as _get_ipython
+    _ip = _get_ipython()
+    if _ip is not None:
+        for _k, _v in list(_ip.user_ns.items()):
+            if _k.startswith('_'):
+                continue
+            _is_plan = inspect.isgeneratorfunction(_v)
+            _is_device = (
+                (_has_protocols and isinstance(_v, (Readable, Flyable))) or
+                (hasattr(_v, 'children') and not inspect.isclass(_v))
+            )
+            if _is_plan or _is_device:
+                globals()[_k] = _v
+except Exception as _e:
+    print(f"Namespace population warning: {_e}")
+PYEOF
+            pixi run -e qs --manifest-path "${CLONED_REPO}/pixi.toml" qserver script upload /tmp/qs_populate_namespace.py || true
 
             # Wait for the script task to complete (manager returns to idle)
             for i in $(seq 1 30); do
@@ -737,9 +767,9 @@ runs:
             echo "${plans_output}"
             if echo "${plans_output}" | grep -q "'plans_existing': {}"; then
                 echo ""
-                echo "NOTE: No plans discovered. Check that plan functions are generator functions"
-                echo "(use 'yield from') and that their default values can be serialized with"
-                echo "ast.literal_eval. Run with --ignore-invalid-plans OFF for detailed errors."
+                echo "NOTE: No plans discovered. This may indicate that plan functions' default"
+                echo "values cannot be serialized with ast.literal_eval, or that get_ipython()"
+                echo "was not available when the populate script ran. Check the RE Manager log."
             fi
             echo "::endgroup::"
 
