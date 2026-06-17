@@ -52,10 +52,9 @@ runs:
       run: |
         echo "::group::Performing beamline-specific tasks"
 
-        # Create the full beamline directory tree as root, then hand ownership
-        # to the runner so nested mkdir operations do not fail.
         sudo mkdir -v -p /nsls2/data/${BEAMLINE_ACRONYM}/shared/config/RE-metadata
-        sudo mkdir -v -p /nsls2/data/${BEAMLINE_ACRONYM}-new  # e.g., fxi-new
+        sudo mkdir -v -p /nsls2/data/${BEAMLINE_ACRONYM}/shared/config/bluesky/logs
+        sudo mkdir -v -p /nsls2/data/${BEAMLINE_ACRONYM}-new
         sudo chown -v -R $USER: /nsls2
 
         mkdir -p "/nsls2/data/${BEAMLINE_ACRONYM}/shared/config/bluesky"
