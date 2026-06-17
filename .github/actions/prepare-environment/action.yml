@@ -58,11 +58,12 @@ runs:
         sudo mkdir -v -p /nsls2/data/${BEAMLINE_ACRONYM}-new  # e.g., fxi-new
         sudo chown -v -R $USER: /nsls2
 
+        mkdir -p "/nsls2/data/${BEAMLINE_ACRONYM}/shared/config/bluesky"
+        ln -sfn "${CLONED_REPO}" "/nsls2/data/${BEAMLINE_ACRONYM}/shared/config/bluesky/profile_collection"
+
         # For IXS beamline
         INI_FILE="${CLONED_REPO}/startup/utils/conf/ini.conf"
-        if [[ -f "${INI_FILE}" && "${BEAMLINE_ACRONYM}" == "IXS" ]]; then
-          mkdir -p "/nsls2/data/${BEAMLINE_ACRONYM}/shared/config/bluesky"
-          ln -sfn "${CLONED_REPO}" "/nsls2/data/${BEAMLINE_ACRONYM}/shared/config/bluesky/profile_collection"
+        if [ -f "${INI_FILE}" ]; then
           ls -l "/nsls2/data/${BEAMLINE_ACRONYM}/shared/config/bluesky/profile_collection/startup/utils/conf/ini.conf"
         else
           echo "Skipping profile_collection symlink setup; missing ${INI_FILE}"
