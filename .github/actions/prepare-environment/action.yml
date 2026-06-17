@@ -47,30 +47,28 @@ runs:
           echo "BLUESKY_KAFKA_PASSWORD=test"
         } >> $GITHUB_ENV
 
-    - name: Beamline directory setup
+    - name: Beamline-specific configurations
       shell: bash -leo pipefail {0}
       run: |
-        sudo mkdir -v -p /nsls2/
-        sudo chown -v "$USER:" /nsls2/
+        echo "::group::Performing beamline-specific tasks"
 
-        if [ "${ENDSTATION_ACRONYM}" = "fmx" ]; then
-          mkdir -p "${RUNNER_TEMP}/RE-metadata"
-          echo "RE_METADATA_DIR=${RUNNER_TEMP}/RE-metadata" >> "$GITHUB_ENV"
-        else
-          mkdir -v -p /nsls2/data/${BEAMLINE_ACRONYM}/shared/config/RE-metadata
-        fi
+        # Create the full beamline directory tree as root, then hand ownership
+        # to the runner so nested mkdir operations do not fail.
+        sudo mkdir -v -p /nsls2/data/${BEAMLINE_ACRONYM}/shared/config/RE-metadata
+        sudo mkdir -v -p /nsls2/data/${BEAMLINE_ACRONYM}-new  # e.g., fxi-new
+        sudo chown -v -R $USER: /nsls2
 
-        mkdir -v -p /nsls2/data/${BEAMLINE_ACRONYM}/shared/config/bluesky/logs
-        mkdir -v -p /nsls2/data/${BEAMLINE_ACRONYM}-new
-
+        # For IXS beamline
         INI_FILE="${CLONED_REPO}/startup/utils/conf/ini.conf"
-        if [ -f "${INI_FILE}" ]; then
+        if [[ -f "${INI_FILE}" && "${BEAMLINE_ACRONYM}" == "IXS" ]]; then
           mkdir -p "/nsls2/data/${BEAMLINE_ACRONYM}/shared/config/bluesky"
           ln -sfn "${CLONED_REPO}" "/nsls2/data/${BEAMLINE_ACRONYM}/shared/config/bluesky/profile_collection"
           ls -l "/nsls2/data/${BEAMLINE_ACRONYM}/shared/config/bluesky/profile_collection/startup/utils/conf/ini.conf"
         else
           echo "Skipping profile_collection symlink setup; missing ${INI_FILE}"
         fi
+
+        # TODO: fix SRX and HXN hardcoded paths.
         export LOGS_HOME="$HOME"
         if [ "${BEAMLINE_ACRONYM}" == "srx" ]; then
             export LOGS_HOME="/home/xf05id1"
@@ -83,11 +81,18 @@ runs:
             touch /home/xf03id/benchmark.out
         fi
         echo "LOGS_HOME=${LOGS_HOME}" >> $GITHUB_ENV
+
         mkdir -v -p ${LOGS_HOME}/.cache/bluesky/log/
+
         mkdir -v -p $HOME/.ipython/
+        # Copy the entire "startup" directory to the test profile.
         cp -rv "${CLONED_REPO}" $HOME/.ipython/profile_test
+        # Remove the top-level .py files as they will be loaded separately from
+        # profile_collection/startup dir. That allows proper capturing of the
+        # exit code in case IPython startup files have issues.
         rm -fv ~/.ipython/profile_test/startup/*.py
 
+        echo "::endgroup::"
 
     - name: EPICS env vars
       shell: bash -leo pipefail {0}
