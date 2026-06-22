@@ -23,7 +23,6 @@ jobs:
           - isr
           - ixs
           - nyx
-          - xfm
         include:
           - { endstation: csx, redis-host: xf23id1-csx-redis1.nsls2.bnl.gov, repo: csx-profile-collection, branch: main }
           - { endstation: fxi, redis-host: xf17id1-fxi-redis1.nsls2.bnl.gov, repo: fxi-profile-collection, branch: main }
@@ -32,7 +31,6 @@ jobs:
           - { endstation: isr, redis-host: xf23id1-isr-redis1.nsls2.bnl.gov, repo: jessica-moylan/isr-profile-collection, branch: LICENSE } #need to find correct redis-host
           - { endstation: ixs, redis-host: xf10id1-ixs-redis1.nsls2.bnl.gov, repo: jessica-moylan/ixs-profile-collection, branch: LICENSE }  
           - { endstation: nyx, redis-host: xf19id2-nyx-redis1.nsls2.bnl.gov, repo: jessica-moylan/nyx-profile-collection, branch: beamline-testing }
-          - { endstation: xfm, redis-host: xf17id1-xfm-redis1.nsls2.bnl.gov, repo: xfm-profile-collection, branch: main } #need to find correct redis-host
     runs-on: ubuntu-latest
     steps:
       - name: Checkout test harness
