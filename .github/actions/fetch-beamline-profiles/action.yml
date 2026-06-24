@@ -37,7 +37,7 @@ runs:
       shell: bash -leo pipefail {0}
       run: |
         echo "::group::Run beamline-specific steps"
-        if [ -f "${CLONED_REPO}/.ci/bl-specific.sh" ]; then
+        if [ -f "${CLONED_REPO}/.ci/bl-specific.sh" ] && [ "${{ matrix.endstation }}" != "smi" ]; then
             # Activate the profile's pixi env so the script inherits its PATH/env.
             eval "$(pixi shell-hook --manifest-path ${CLONED_REPO}/pixi.toml -e ${{ matrix.pixi-env }})"
             # Non-interactive CI shells need the conda hook for `conda activate`.

@@ -175,6 +175,22 @@ runs:
         tla = os.getenv('BEAMLINE_ACRONYM', 'xyz').lower()
         TLA = tla.upper()
         client = from_profile('nsls2', api_key=os.getenv(f'TILED_BLUESKY_WRITING_API_KEY_{TLA}', 'secret'))
-        client.create_container(tla).create_container('raw', specs=['CatalogOfBlueskyRuns'])
-        print(client[tla]['raw'])"
+
+        def get_or_create_container(parent, key, specs=None):
+          try:
+            return parent[key]
+          except Exception:
+            try:
+              if specs is None:
+                return parent.create_container(key)
+              return parent.create_container(key, specs=specs)
+            except Exception:
+              return parent[key]
+
+        beamline = get_or_create_container(client, tla)
+        if tla == 'smi':
+          get_or_create_container(beamline, 'migration', specs=['CatalogOfBlueskyRuns'])
+          get_or_create_container(beamline, 'raw', specs=['CatalogOfBlueskyRuns'])
+        else:
+          get_or_create_container(beamline, 'raw', specs=['CatalogOfBlueskyRuns'])"
       shell: bash
