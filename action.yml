@@ -36,6 +36,16 @@ inputs:
     required: false
     description: 'Test bluesky-queueserver compatibility by starting RE Manager with the beamline startup files. Only supported for pixi-based repos that define a "qs" pixi environment.'
     default: 'false'
+outputs:
+  test-outcome:
+    description: 'IPython profile load outcome: success, failure, or not-run'
+    value: ${{ steps.set-outputs.outputs.test-outcome }}
+  env-manager:
+    description: 'Environment manager used: pixi or conda'
+    value: ${{ steps.set-outputs.outputs.env-manager }}
+  qs-outcome:
+    description: 'bluesky-queueserver test outcome: success, failure, or skipped'
+    value: ${{ steps.set-outputs.outputs.qs-outcome }}
 runs:
   using: 'composite'
 
@@ -44,6 +54,20 @@ runs:
       uses: actions/checkout@v4
       with:
         persist-credentials: false
+
+    - name: Initialize test tracking
+      shell: bash
+      run: |
+        echo "TEST_IPYTHON_OUTCOME=not-run" >> $GITHUB_ENV
+        echo "TEST_QS_OUTCOME=skipped" >> $GITHUB_ENV
+        echo "DEVICES_COUNT=" >> $GITHUB_ENV
+        echo "PLANS_COUNT=" >> $GITHUB_ENV
+        echo "FIRST_ERROR_STEP=" >> $GITHUB_ENV
+        {
+          echo 'FIRST_ERROR_SNIPPET<<_GHAERR_'
+          echo ''
+          echo '_GHAERR_'
+        } >> $GITHUB_ENV
 
     - name: Env vars for locally cloned repo
       if: inputs.branch != ''
@@ -607,12 +631,28 @@ runs:
             ip.parent._exec_file(f)"
         env | grep EPICS
         if [ "${USE_PIXI}" == "true" ]; then
-            pixi run -e terminal --manifest-path "${CLONED_REPO}/pixi.toml" ipython --profile=test -c "$command"
+            pixi run -e terminal --manifest-path "${CLONED_REPO}/pixi.toml" ipython --profile=test -c "$command" \
+              || { echo "TEST_IPYTHON_OUTCOME=failure" >> $GITHUB_ENV; exit 1; }
         else
             conda activate $HOME/env
-            ipython --profile=test -c "$command"
+            ipython --profile=test -c "$command" \
+              || { echo "TEST_IPYTHON_OUTCOME=failure" >> $GITHUB_ENV; exit 1; }
         fi
+        echo "TEST_IPYTHON_OUTCOME=success" >> $GITHUB_ENV
         echo "::endgroup::"
+
+    - name: Capture IPython test error details
+      if: failure() && env.TEST_IPYTHON_OUTCOME == 'failure'
+      shell: bash
+      run: |
+        echo "FIRST_ERROR_STEP=Activate IPython profile and run tests" >> $GITHUB_ENV
+        {
+          echo 'FIRST_ERROR_SNIPPET<<_GHAERR_'
+          echo "=== Last 30 lines of bluesky_ipython.log ==="
+          tail -30 "${LOGS_HOME}/.cache/bluesky/log/bluesky_ipython.log" 2>/dev/null \
+            || echo "(log not yet available)"
+          echo '_GHAERR_'
+        } >> $GITHUB_ENV
 
     - name: Test bluesky-queueserver compatibility
       if: inputs.test-queueserver == 'true' && env.USE_PIXI == 'true'
@@ -744,11 +784,15 @@ runs:
             echo "::group::Existing devices (discovered from startup files)"
             devices_output=$(pixi run -e qs --manifest-path "${CLONED_REPO}/pixi.toml" qserver existing devices 2>/dev/null || true)
             echo "${devices_output}"
+            # Count devices and save to file for summary
+            echo "${devices_output}" > /tmp/qs_devices_output.txt
             echo "::endgroup::"
 
             echo "::group::Existing plans (all discovered from startup files)"
             plans_output=$(pixi run -e qs --manifest-path "${CLONED_REPO}/pixi.toml" qserver existing plans 2>/dev/null || true)
             echo "${plans_output}"
+            # Count plans and save to file for summary
+            echo "${plans_output}" > /tmp/qs_plans_output.txt
             if echo "${plans_output}" | grep -q "'plans_existing': {}"; then
                 echo ""
                 echo "NOTE: No plans discovered. This may indicate that plan functions' default"
@@ -756,6 +800,12 @@ runs:
                 echo "was not available when the populate script ran. Check the RE Manager log."
             fi
             echo "::endgroup::"
+
+            # Parse and record device/plan counts for the summary
+            DEVICES_COUNT=$(python3 -c "import ast; text=open('/tmp/qs_devices_output.txt').read(); start=text.find('{'); data=ast.literal_eval(text[start:]) if start!=-1 else {}; print(len(data.get('devices_existing', {})))" 2>/dev/null || echo "unknown")
+            PLANS_COUNT=$(python3 -c "import ast; text=open('/tmp/qs_plans_output.txt').read(); start=text.find('{'); data=ast.literal_eval(text[start:]) if start!=-1 else {}; print(len(data.get('plans_existing', {})))" 2>/dev/null || echo "unknown")
+            echo "DEVICES_COUNT=${DEVICES_COUNT}" >> $GITHUB_ENV
+            echo "PLANS_COUNT=${PLANS_COUNT}" >> $GITHUB_ENV
 
             echo "::group::Allowed plans (filtered by user group permissions)"
             pixi run -e qs --manifest-path "${CLONED_REPO}/pixi.toml" qserver allowed plans || true
@@ -774,9 +824,11 @@ runs:
         echo "::endgroup::"
 
         if [ "${ENV_READY}" != "true" ]; then
+            echo "TEST_QS_OUTCOME=failure" >> $GITHUB_ENV
             echo "ERROR: bluesky-queueserver environment failed to open. See RE Manager log above."
             exit 1
         fi
+        echo "TEST_QS_OUTCOME=success" >> $GITHUB_ENV
 
     - name: Upload existing_plans_and_devices.yaml artifact
       if: inputs.test-queueserver == 'true' && env.USE_PIXI == 'true'
@@ -785,6 +837,18 @@ runs:
         name: existing-plans-and-devices
         path: ${{ env.CLONED_REPO }}/startup/existing_plans_and_devices.yaml
         if-no-files-found: warn
+
+    - name: Capture QS test error details
+      if: failure() && env.TEST_QS_OUTCOME == 'failure' && env.FIRST_ERROR_STEP == ''
+      shell: bash
+      run: |
+        echo "FIRST_ERROR_STEP=Test bluesky-queueserver compatibility" >> $GITHUB_ENV
+        {
+          echo 'FIRST_ERROR_SNIPPET<<_GHAERR_'
+          echo "=== Last 30 lines of RE Manager log ==="
+          tail -30 /tmp/re-manager.log 2>/dev/null || echo "(RE Manager log not available)"
+          echo '_GHAERR_'
+        } >> $GITHUB_ENV
 
     - name: Check bluesky logs
       if: always()
@@ -802,13 +866,147 @@ runs:
         echo -e "\n\n=============================================================="
         echo "::endgroup::"
 
+    - name: Set action outputs
+      id: set-outputs
+      if: always()
+      shell: bash
+      run: |
+        echo "test-outcome=${TEST_IPYTHON_OUTCOME:-not-run}" >> $GITHUB_OUTPUT
+        if [ "${USE_PIXI}" == "true" ]; then
+          echo "env-manager=pixi" >> $GITHUB_OUTPUT
+        else
+          echo "env-manager=conda" >> $GITHUB_OUTPUT
+        fi
+        echo "qs-outcome=${TEST_QS_OUTCOME:-skipped}" >> $GITHUB_OUTPUT
+
     - name: Job completed
-      shell: bash -leo pipefail {0}
+      if: always()
+      shell: bash
       run: |
         echo "::group::Test results summary"
-        echo -e "### Test results\n\nTest for ${INPUTS_BEAMLINE_ACRONYM}:${INPUTS_REPO}@${INPUTS_BRANCH} finished." >> $GITHUB_STEP_SUMMARY
+
+        ipython_outcome="${TEST_IPYTHON_OUTCOME:-not-run}"
+        qs_outcome="${TEST_QS_OUTCOME:-skipped}"
+
+        # Determine environment manager label
+        if [ "${USE_PIXI}" == "true" ]; then
+          env_manager="pixi"
+        else
+          env_manager="conda"
+        fi
+
+        # Map outcomes to status icons
+        case "${ipython_outcome}" in
+          success) ipython_icon="✅" ;;
+          failure) ipython_icon="❌" ;;
+          not-run) ipython_icon="⚠️" ;;
+          *)       ipython_icon="❓" ;;
+        esac
+        case "${qs_outcome}" in
+          success) qs_icon="✅" ;;
+          failure) qs_icon="❌" ;;
+          skipped) qs_icon="⏭️" ;;
+          *)       qs_icon="❓" ;;
+        esac
+
+        # Determine overall status
+        if [ "${ipython_outcome}" == "success" ] && [ "${qs_outcome}" != "failure" ]; then
+          overall_emoji="✅"
+          overall_status="Passed"
+        elif [ "${ipython_outcome}" == "not-run" ]; then
+          overall_emoji="⚠️"
+          overall_status="Incomplete (early failure)"
+        else
+          overall_emoji="❌"
+          overall_status="Failed"
+        fi
+
+        branch_info="${INPUTS_BRANCH}"
+        if [ -z "${branch_info}" ]; then
+          branch_info="(current checkout — ${GITHUB_REF_NAME})"
+        fi
+
+        short_sha="${GITHUB_SHA:0:8}"
+
+        {
+          echo "## ${overall_emoji} Test results: ${overall_status}"
+          echo ""
+          echo "| | |"
+          echo "|---|---|"
+          echo "| **Beamline** | \`${INPUTS_BEAMLINE_ACRONYM}\` |"
+          echo "| **Repository** | \`${INPUTS_ORG}/${INPUTS_REPO}\` |"
+          echo "| **Branch** | \`${branch_info}\` |"
+          echo "| **Environment** | \`${env_manager}\` |"
+          echo "| **Commit** | [\`${short_sha}\`](${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/commit/${GITHUB_SHA}) |"
+          echo "| **Run** | [#${GITHUB_RUN_ID}](${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}) |"
+          echo "| **Triggered by** | \`${GITHUB_EVENT_NAME}\` |"
+          echo ""
+          echo "### Test phase results"
+          echo ""
+          echo "| Phase | Outcome |"
+          echo "|---|---|"
+          echo "| IPython profile load | ${ipython_icon} \`${ipython_outcome}\` |"
+          echo "| bluesky-queueserver compatibility | ${qs_icon} \`${qs_outcome}\` |"
+          echo ""
+        } >> $GITHUB_STEP_SUMMARY
+
+        # Queue Server statistics (only when QS test ran and succeeded)
+        if [ "${qs_outcome}" == "success" ]; then
+          {
+            echo "### Queue Server statistics"
+            echo ""
+            echo "| Metric | Value |"
+            echo "|---|---|"
+            echo "| Devices discovered | \`${DEVICES_COUNT:-unknown}\` |"
+            echo "| Plans discovered | \`${PLANS_COUNT:-unknown}\` |"
+            echo ""
+          } >> $GITHUB_STEP_SUMMARY
+        fi
+
+        # Error details section (expandable, shown only on failure)
+        if [ "${ipython_outcome}" == "failure" ] || [ "${qs_outcome}" == "failure" ]; then
+          {
+            echo "<details>"
+            echo "<summary>❌ Error details — click to expand</summary>"
+            echo ""
+            if [ -n "${FIRST_ERROR_STEP}" ]; then
+              echo "**Failed step:** \`${FIRST_ERROR_STEP}\`"
+              echo ""
+              echo "\`\`\`"
+              echo "${FIRST_ERROR_SNIPPET}"
+              echo "\`\`\`"
+            else
+              echo "_No error snippet captured. Check the step logs for details._"
+            fi
+            echo ""
+            echo "> 🔗 [View full run logs](${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID})"
+            echo ""
+            echo "</details>"
+            echo ""
+          } >> $GITHUB_STEP_SUMMARY
+        fi
+
+        # Configuration details (always present, collapsed)
+        {
+          echo "<details>"
+          echo "<summary>⚙️ Test configuration — click to expand</summary>"
+          echo ""
+          echo "| Input | Value |"
+          echo "|---|---|"
+          echo "| Org | \`${INPUTS_ORG}\` |"
+          echo "| Repository | \`${INPUTS_REPO}\` |"
+          echo "| Branch | \`${branch_info}\` |"
+          echo "| Beamline acronym | \`${INPUTS_BEAMLINE_ACRONYM}\` |"
+          echo "| Test queue-server | \`${INPUTS_TEST_QUEUESERVER}\` |"
+          echo "| Environment manager | \`${env_manager}\` |"
+          echo ""
+          echo "</details>"
+        } >> $GITHUB_STEP_SUMMARY
+
         echo "::endgroup::"
       env:
         INPUTS_BEAMLINE_ACRONYM: ${{ inputs.beamline-acronym }}
+        INPUTS_ORG: ${{ inputs.org }}
         INPUTS_REPO: ${{ inputs.repo }}
         INPUTS_BRANCH: ${{ inputs.branch }}
+        INPUTS_TEST_QUEUESERVER: ${{ inputs.test-queueserver }}
