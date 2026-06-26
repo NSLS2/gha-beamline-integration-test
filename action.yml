@@ -62,9 +62,13 @@ runs:
         echo "TEST_QS_OUTCOME=skipped" >> $GITHUB_ENV
         echo "DEVICES_COUNT=" >> $GITHUB_ENV
         echo "PLANS_COUNT=" >> $GITHUB_ENV
-        echo "FIRST_ERROR_STEP=" >> $GITHUB_ENV
         {
-          echo 'FIRST_ERROR_SNIPPET<<_GHAERR_'
+          echo 'IPYTHON_ERROR_SNIPPET<<_GHAERR_'
+          echo ''
+          echo '_GHAERR_'
+        } >> $GITHUB_ENV
+        {
+          echo 'QS_ERROR_SNIPPET<<_GHAERR_'
           echo ''
           echo '_GHAERR_'
         } >> $GITHUB_ENV
@@ -604,6 +608,7 @@ runs:
         echo "::endgroup::"
 
     - name: Activate IPython profile and run tests
+      continue-on-error: true
       shell: bash -leo pipefail {0}
       run: |
         echo "::group::Activating IPython profile and running tests..."
@@ -642,12 +647,11 @@ runs:
         echo "::endgroup::"
 
     - name: Capture IPython test error details
-      if: failure() && env.TEST_IPYTHON_OUTCOME == 'failure'
+      if: always() && env.TEST_IPYTHON_OUTCOME == 'failure'
       shell: bash
       run: |
-        echo "FIRST_ERROR_STEP=Activate IPython profile and run tests" >> $GITHUB_ENV
         {
-          echo 'FIRST_ERROR_SNIPPET<<_GHAERR_'
+          echo 'IPYTHON_ERROR_SNIPPET<<_GHAERR_'
           echo "=== Last 30 lines of bluesky_ipython.log ==="
           tail -30 "${LOGS_HOME}/.cache/bluesky/log/bluesky_ipython.log" 2>/dev/null \
             || echo "(log not yet available)"
@@ -655,7 +659,8 @@ runs:
         } >> $GITHUB_ENV
 
     - name: Test bluesky-queueserver compatibility
-      if: inputs.test-queueserver == 'true' && env.USE_PIXI == 'true'
+      if: always() && inputs.test-queueserver == 'true' && env.USE_PIXI == 'true'
+      continue-on-error: true
       shell: bash -leo pipefail {0}
       run: |
         echo "::group::Starting RE Manager"
@@ -839,12 +844,11 @@ runs:
         if-no-files-found: warn
 
     - name: Capture QS test error details
-      if: failure() && env.TEST_QS_OUTCOME == 'failure' && env.FIRST_ERROR_STEP == ''
+      if: always() && env.TEST_QS_OUTCOME == 'failure'
       shell: bash
       run: |
-        echo "FIRST_ERROR_STEP=Test bluesky-queueserver compatibility" >> $GITHUB_ENV
         {
-          echo 'FIRST_ERROR_SNIPPET<<_GHAERR_'
+          echo 'QS_ERROR_SNIPPET<<_GHAERR_'
           echo "=== Last 30 lines of RE Manager log ==="
           tail -30 /tmp/re-manager.log 2>/dev/null || echo "(RE Manager log not available)"
           echo '_GHAERR_'
@@ -963,21 +967,31 @@ runs:
           } >> $GITHUB_STEP_SUMMARY
         fi
 
-        # Error details section (expandable, shown only on failure)
-        if [ "${ipython_outcome}" == "failure" ] || [ "${qs_outcome}" == "failure" ]; then
+        # Error details — one collapsible block per failed phase
+        if [ "${ipython_outcome}" == "failure" ]; then
           {
             echo "<details>"
-            echo "<summary>❌ Error details — click to expand</summary>"
+            echo "<summary>❌ IPython profile load — error details (click to expand)</summary>"
             echo ""
-            if [ -n "${FIRST_ERROR_STEP}" ]; then
-              echo "**Failed step:** \`${FIRST_ERROR_STEP}\`"
-              echo ""
-              echo "\`\`\`"
-              echo "${FIRST_ERROR_SNIPPET}"
-              echo "\`\`\`"
-            else
-              echo "_No error snippet captured. Check the step logs for details._"
-            fi
+            echo "\`\`\`"
+            echo "${IPYTHON_ERROR_SNIPPET}"
+            echo "\`\`\`"
+            echo ""
+            echo "> 🔗 [View full run logs](${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID})"
+            echo ""
+            echo "</details>"
+            echo ""
+          } >> $GITHUB_STEP_SUMMARY
+        fi
+
+        if [ "${qs_outcome}" == "failure" ]; then
+          {
+            echo "<details>"
+            echo "<summary>❌ bluesky-queueserver compatibility — error details (click to expand)</summary>"
+            echo ""
+            echo "\`\`\`"
+            echo "${QS_ERROR_SNIPPET}"
+            echo "\`\`\`"
             echo ""
             echo "> 🔗 [View full run logs](${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID})"
             echo ""
@@ -1010,3 +1024,20 @@ runs:
         INPUTS_REPO: ${{ inputs.repo }}
         INPUTS_BRANCH: ${{ inputs.branch }}
         INPUTS_TEST_QUEUESERVER: ${{ inputs.test-queueserver }}
+
+    - name: Fail if any test failed
+      if: always()
+      shell: bash
+      run: |
+        failed=false
+        if [ "${TEST_IPYTHON_OUTCOME}" == "failure" ]; then
+          echo "::error::IPython profile load failed. See job summary for details."
+          failed=true
+        fi
+        if [ "${TEST_QS_OUTCOME}" == "failure" ]; then
+          echo "::error::bluesky-queueserver compatibility test failed. See job summary for details."
+          failed=true
+        fi
+        if [ "${failed}" == "true" ]; then
+          exit 1
+        fi
