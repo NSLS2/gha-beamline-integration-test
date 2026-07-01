@@ -16,7 +16,6 @@ jobs:
       matrix:
         pixi-env: [terminal] # TODO: re-enable [terminal, qs] when ready to test queueserver
         endstation:
-          - cms
           - csx
           - fmx
           - fxi
@@ -28,7 +27,6 @@ jobs:
           - tes
           - xfp
         include:
-          - { endstation: cms, redis-host: xf11bm-cms-redis1.nsls2.bnl.gov, repo: cms-profile-collection, branch: main }
           - { endstation: csx, redis-host: xf23id1-csx-redis1.nsls2.bnl.gov, repo: csx-profile-collection, branch: main }
           - { endstation: fxi, redis-host: xf17id1-fxi-redis1.nsls2.bnl.gov, repo: fxi-profile-collection, branch: main }
           - { endstation: fmx, redis-host: xf17id2-fmx-redis1.nsls2.bnl.gov, repo: fmx-profile-collection, branch: pixi_2026C2 } #need to find correct redis-host
