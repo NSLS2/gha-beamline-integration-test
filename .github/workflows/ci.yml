@@ -1,0 +1,182 @@
+name: Test IPython beamline profiles
+
+on:
+  push:
+    branches:
+      - '**'
+  pull_request:
+    branches:
+      - '**'
+  workflow_dispatch:
+jobs:
+  testing_beamline_profiles:
+    name: ${{ matrix.endstation }} (${{ matrix.pixi-env }})
+    strategy:
+      fail-fast: false
+      matrix:
+        pixi-env: [terminal] # TODO: re-enable [terminal, qs] when ready to test queueserver
+        endstation:
+          - csx
+          - fmx
+          - fxi
+          - ios
+          - isr
+          - ixs
+          - smi
+          - nyx
+          - tes
+          - xfp
+        include:
+          - { endstation: csx, redis-host: xf23id1-csx-redis1.nsls2.bnl.gov, repo: csx-profile-collection, branch: main }
+          - { endstation: fxi, redis-host: xf17id1-fxi-redis1.nsls2.bnl.gov, repo: fxi-profile-collection, branch: main }
+          - { endstation: fmx, redis-host: xf17id2-fmx-redis1.nsls2.bnl.gov, repo: fmx-profile-collection, branch: pixi_2026C2 } #need to find correct redis-host
+          - { endstation: ios, redis-host: xf23id1-ios-redis1.nsls2.bnl.gov, repo: ios-profile-collection, branch: main }  
+          - { endstation: isr, redis-host: xf23id1-isr-redis1.nsls2.bnl.gov, repo: jessica-moylan/isr-profile-collection, branch: LICENSE } #need to find correct redis-host
+          - { endstation: ixs, redis-host: xf10id1-ixs-redis1.nsls2.bnl.gov, repo: jessica-moylan/ixs-profile-collection, branch: LICENSE }  
+          - { endstation: smi, redis-host: xf12id2-smi-redis1.nsls2.bnl.gov, repo: smi-profile-collection, branch: main }
+          - { endstation: nyx, redis-host: xf19id2-nyx-redis1.nsls2.bnl.gov, repo: nyx-profile-collection, branch: main }
+          - { endstation: tes, redis-host: xf28id1-tes-redis1.nsls2.bnl.gov, repo: tes-profile-collection, branch: pixi_2026C2 } #need to find correct redis-host
+          - { endstation: xfp, redis-host: xf28id1-xfp-redis1.nsls2.bnl.gov, repo: xfp-profile-collection, branch: master }  #need to find correct redis-host
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout test harness
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: 3.11
+
+      # Set up pixi
+      - name: Set up pixi
+        uses: prefix-dev/setup-pixi@19eac09b398e3d0c747adc7921926a6d802df4da # v0.8.8
+        with:
+          pixi-version: v0.56.0
+          run-install: false
+          cache: false
+
+      - name: Fetch beamline profiles
+        uses: ./.github/actions/fetch-beamline-profiles
+        
+
+      - name: Beamline-specific, gets env vars and repo info
+        uses: ./.github/actions/prepare-environment
+        with:
+          repo: ${{ matrix.repo }}
+          branch: ${{ matrix.branch }}
+          redis-host: ${{ matrix.redis-host }}
+          endstation: ${{ matrix.endstation }}
+
+      - name: Start dependencies
+        uses: ./.github/actions/start-dependencies
+
+    # Run profile tests      
+      - name: Run profile startup tests
+        shell: bash -leo pipefail {0}
+        run: |
+          eval "$(pixi shell-hook --manifest-path ${CLONED_REPO}/pixi.toml -e ${{ matrix.pixi-env }})"
+          echo "DEBUG: TILED_API_KEY_LEN=${#TILED_API_KEY}"
+          cd "${CLONED_REPO}"
+
+          if [ "${{ matrix.pixi-env }}" = "terminal" ]; then
+            /sbin/start-stop-daemon --start --quiet --pidfile /tmp/custom_xvfb_99.pid --make-pidfile --background --exec /usr/bin/Xvfb -- :99 -ac -screen 0 1280x1024x16
+            export DISPLAY=:99
+
+            # Wait for X server to be ready and set non-interactive matplotlib backend
+            sleep 2
+            export MPLBACKEND=Agg
+            export QT_QPA_PLATFORM=offscreen
+            export PYTHONFAULTHANDLER=1
+            export LIBGL_ALWAYS_SOFTWARE=1
+            export QTWEBENGINE_DISABLE_SANDBOX=1
+            export OMP_NUM_THREADS=1
+            export OPENBLAS_NUM_THREADS=1
+            export MKL_NUM_THREADS=1
+            
+            command="
+            import os, glob, sys, traceback
+            ip = get_ipython()
+            startup_files = sorted(glob.glob(os.path.join(os.getcwd(), 'startup/*.py')))
+            if os.path.isfile('.ci/drop-in.py'):
+              startup_files.append('.ci/drop-in.py')
+            if not startup_files:
+              raise SystemExit(f'Cannot find any startup files in {os.getcwd()}')
+            for f in startup_files:
+              if not os.path.isfile(f):
+                raise FileNotFoundError(f'File {f} cannot be found.')
+              print(f'Executing {f} in CI')
+              try:
+                ip.parent._exec_file(f)
+              except Exception as e:
+                print(f'ERROR in {f}:')
+                traceback.print_exc()
+                raise"
+            env | grep EPICS || true
+
+            set +e
+            ipython --profile=test -c "$command"
+            ipython_status=$?
+            set -e
+
+            if [ "${ipython_status}" -eq 139 ]; then
+              echo "Detected segfault (exit 139) in profile startup test, retrying once..."
+              sleep 2
+              set +e
+              ipython --profile=test -c "$command"
+              ipython_status=$?
+              set -e
+            fi
+
+            if [ "${ipython_status}" -ne 0 ]; then
+              echo "ipython profile startup test failed with exit code ${ipython_status}"
+              exit "${ipython_status}"
+            fi
+          else
+            # TODO: queueserver tests disabled for now
+            # nohup start-re-manager --profile-dir=. < /dev/null > /tmp/qs_manager.log 2>&1 &
+            # QS_MANAGER_PID=$!
+            # disown
+            # echo "QS_MANAGER_PID=${QS_MANAGER_PID}" >> $GITHUB_ENV
+
+            # for i in {1..60}; do
+            #   if grep -qF "ZeroMQ server is waiting on" /tmp/qs_manager.log; then
+            #     exit 0
+            #   fi
+            #   sleep 1
+            # done
+
+            # echo "start-re-manager did not become ready within 60 seconds"
+            # kill -SIGINT "${QS_MANAGER_PID}" 2>/dev/null || true
+            # exit 1
+            echo "Queueserver tests disabled"
+            exit 0
+          fi
+
+    # Show logs
+      - name: Show logs
+        if: always()
+        shell: bash -leo pipefail {0}
+        run: |
+          show_log() {
+              echo "=== $1 ==="
+              if [ -f "$2" ]; then
+                  cat "$2"
+              else
+                  echo "(not produced)"
+              fi
+          }
+          show_log "Blackhole IOC" /tmp/blackhole_ioc.log
+          show_log "Tiled server" /tmp/tiled.log
+          # show_log "QS manager" /tmp/qs_manager.log  # TODO: re-enable when queueserver tests are active
+          show_log "Caddy reverse proxy" /tmp/caddy.log
+          show_log "Bluesky" "${LOGS_HOME}/.cache/bluesky/log/bluesky.log"
+          show_log "Bluesky IPython" "${LOGS_HOME}/.cache/bluesky/log/bluesky_ipython.log"
+          echo "=== Kafka ==="
+          docker logs kafka 2>&1 || echo "(not produced)"
+
+
+    # Stop Services
+      - name: Stop services
+        uses: ./.github/actions/stop-services
