@@ -68,6 +68,11 @@ runs:
           echo "Skipping profile_collection symlink setup; missing ${INI_FILE}"
         fi
 
+        # For IXS beamline
+        if [ ${{ matrix.endstation }} == "ixs" ]; then
+          mkdir -v -p /nsls2/data/${BEAMLINE_ACRONYM}/legacy
+        fi
+
         # TODO: fix SRX and HXN hardcoded paths.
         export LOGS_HOME="$HOME"
         if [ "${BEAMLINE_ACRONYM}" == "srx" ]; then
