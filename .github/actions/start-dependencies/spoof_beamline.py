@@ -20,8 +20,6 @@ PLUGIN_TYPE_PVS = [
     (re.compile('Nexus\\d:'), 'NDPluginNexus'),
     (re.compile('HDF\\d:'), 'NDFileHDF5'),
     (re.compile('Magick\\d:'), 'NDFileMagick'),
-    (re.compile('TIFF\\d:'), 'NDFileTIFF'),
-    (re.compile('HDF\\d:'), 'NDFileHDF5'),
     (re.compile('Current\\d:'), 'NDPluginStats'),
     (re.compile('SumAll'), 'NDPluginStats'),
 ]
@@ -117,11 +115,8 @@ Press return if you have acknowledged the above, or Ctrl-C to quit.''')
     except KeyboardInterrupt:
         print()
         return
-    print('''
-
-                         PV blackhole started
-
-''')
+    print("PV blackhole started")
+    
     _, run_options = ioc_arg_parser(
         default_prefix='',
         desc="PV black hole")

@@ -1,0 +1,326 @@
+name: Test IPython beamline profiles
+
+on:
+  push:
+    branches:
+      - '**'
+  pull_request:
+    branches:
+      - '**'
+  schedule:
+    - cron: '00 6 * * *' # daily at 6AM UTC
+  workflow_dispatch:
+jobs:
+  testing_beamline_profiles:
+    name: ${{ matrix.endstation }} (${{ matrix.pixi-env }})
+    strategy:
+      fail-fast: false
+      matrix:
+        pixi-env: [terminal] # TODO: re-enable [terminal, qs] when ready to test queueserver
+        endstation:
+          - csx
+          - fmx
+          - fxi
+          - hex
+          - ios
+          - isr
+          - ixs
+          - six
+          - smi
+          - lix
+          - srx
+          - nyx
+          - opls
+          - tes
+          - xfp
+          - xfm
+          - xpd
+        include:
+          - { endstation: csx, redis-host: xf23id1-csx-redis1.nsls2.bnl.gov, repo: csx-profile-collection, branch: main }
+          - { endstation: fxi, redis-host: xf17id1-fxi-redis1.nsls2.bnl.gov, repo: fxi-profile-collection, branch: main }
+          - { endstation: fmx, redis-host: xf17id2-fmx-redis1.nsls2.bnl.gov, repo: fmx-profile-collection, branch: pixi_2026C2 } #need to find correct redis-host
+          - { endstation: hex, redis-host: xf27id1-hex-redis1.nsls2.bnl.gov, repo: hex-profile-collection, branch: main } 
+          - { endstation: ios, redis-host: xf23id1-ios-redis1.nsls2.bnl.gov, repo: ios-profile-collection, branch: main }  
+          - { endstation: isr, redis-host: xf23id1-isr-redis1.nsls2.bnl.gov, repo: jessica-moylan/isr-profile-collection, branch: LICENSE } #need to find correct redis-host
+          - { endstation: ixs, redis-host: xf10id1-ixs-redis1.nsls2.bnl.gov, repo: jessica-moylan/ixs-profile-collection, branch: LICENSE }  
+          - { endstation: six, redis-host: xf02id1-six-redis1.nsls2.bnl.gov, repo: six-profile-collection, branch: main }
+          - { endstation: smi, redis-host: xf12id2-smi-redis1.nsls2.bnl.gov, repo: smi-profile-collection, branch: main }
+          - { endstation: lix, redis-host: xf28id1-lix-redis1.nsls2.bnl.gov, repo: lix-profile-collection, branch: master }  #need to find correct redis-host
+          - { endstation: opls, redis-host: xf12id1-opls-redis1.nsls2.bnl.gov, repo: opls-profile-collection, branch: main } #need to find correct redis-host
+          - { endstation: srx, redis-host: xf28id1-srx-redis1.nsls2.bnl.gov, repo: srx-profile-collection, branch: main } #need to find correct redis-host
+          - { endstation: nyx, redis-host: xf19id2-nyx-redis1.nsls2.bnl.gov, repo: nyx-profile-collection, branch: main }
+          - { endstation: tes, redis-host: xf28id1-tes-redis1.nsls2.bnl.gov, repo: tes-profile-collection, branch: pixi_2026C2 } #need to find correct redis-host
+          - { endstation: xfm, redis-host: xf17id1-xfm-redis1.nsls2.bnl.gov, repo: jessica-moylan/xfm-profile-collection, branch: LICENSE } #need to find correct redis-host
+          - { endstation: xfp, redis-host: xf28id1-xfp-redis1.nsls2.bnl.gov, repo: xfp-profile-collection, branch: master }  #need to find correct redis-host
+          - { endstation: xpd, redis-host: xf28id1-xpd-redis1.nsls2.bnl.gov, repo: xpd-profile-collection, branch: main }  #need to find correct redis-host
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout test harness
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: 3.11
+
+      # Set up pixi; Check https://github.com/NSLS2/nsls2rpms/pulls?q=+is%3Apr+ for current pixi version used on floor
+      - name: Set up pixi
+        uses: prefix-dev/setup-pixi@19eac09b398e3d0c747adc7921926a6d802df4da # v0.8.8
+        with:
+          pixi-version: v0.71.3
+          run-install: false
+          cache: false
+
+      - name: Start blackhole IOC
+        uses: ./.github/actions/start-blackhole-ioc
+
+      - name: Fetch beamline profiles
+        uses: ./.github/actions/fetch-beamline-profiles
+        
+
+      - name: Beamline-specific, gets env vars and repo info
+        uses: ./.github/actions/prepare-environment
+        with:
+          repo: ${{ matrix.repo }}
+          branch: ${{ matrix.branch }}
+          redis-host: ${{ matrix.redis-host }}
+          endstation: ${{ matrix.endstation }}
+
+      - name: Start dependencies
+        uses: ./.github/actions/start-dependencies
+
+      - name: Run profile startup tests
+        shell: bash -leo pipefail {0}
+        run: |
+          eval "$(pixi shell-hook --manifest-path ${CLONED_REPO}/pixi.toml -e ${{ matrix.pixi-env }})"
+          echo "DEBUG: TILED_API_KEY_LEN=${#TILED_API_KEY}"
+          cd "${CLONED_REPO}"
+
+          python3 << 'PATCH_STARTUP_EOF'
+          import glob
+          import re
+          from pathlib import Path
+
+          pattern = re.compile(
+              r"_load_beamline_config\(\s*glbl\[\s*(['\"])blconfig_path\1\s*\]\s*\)"
+          )
+          replacement = "_load_beamline_config(glbl['blconfig_path'], test=True)"
+
+          for startup_file in sorted(glob.glob('startup/*.py')):
+              path = Path(startup_file)
+              text = path.read_text()
+              patched = pattern.sub(replacement, text)
+              if patched != text:
+                path.write_text(patched)
+          PATCH_STARTUP_EOF
+
+          if [ "${{ matrix.pixi-env }}" = "terminal" ]; then
+            /sbin/start-stop-daemon --start --quiet --pidfile /tmp/custom_xvfb_99.pid --make-pidfile --background --exec /usr/bin/Xvfb -- :99 -ac -screen 0 1280x1024x16
+            export DISPLAY=:99
+
+            # Wait for X server to be ready and set non-interactive matplotlib backend
+            sleep 2
+            export MPLBACKEND=Agg
+            export QT_QPA_PLATFORM=offscreen
+            export PYTHONFAULTHANDLER=1
+            export LIBGL_ALWAYS_SOFTWARE=1
+            export QTWEBENGINE_DISABLE_SANDBOX=1
+            export OMP_NUM_THREADS=1
+            export OPENBLAS_NUM_THREADS=1
+            export MKL_NUM_THREADS=1
+
+            # Need to set enviornment variables to --proc for LIX, no hardware, data access only
+            if [ "${{ matrix.endstation }}" = "lix" ]; then
+              export BS_CONFIG=proc
+              echo "BS_CONFIG=proc" >> $GITHUB_ENV
+            fi
+            
+            command="
+            import io, os, glob, sys, traceback, warnings
+
+            # Get system arguments, needed currently for SIX with user inputs
+            # TODO: do both SIX endatations, six and keithley, need to be tested?
+            beamline_acronym = os.environ.get('BEAMLINE_ACRONYM', 'unknown')
+            six_endstation1 = 'six'
+
+            ip = get_ipython()
+
+            # Test for CI  for fixxing startup files do not fail when authentication.links is None.
+            try:
+                from tiled.client.context import Context
+
+                def _ci_fixed_whoami(self):
+                    auth = getattr(self.server_info, 'authentication', None)
+                    links = getattr(auth, 'links', None)
+                    if links:
+                        return self.http_client.get(
+                            links.whoami,
+                            headers={'Accept': 'application/x-msgpack'},
+                        ).json()
+                    else:
+                        warnings.warn('Authentication providers were not configured on the server.')
+
+                Context.whoami = _ci_fixed_whoami
+                print('Applied CI monkey patch for tiled Context.whoami')
+            except Exception as exc:
+                print(f'Could not apply Tiled monkey patch: {exc}')      
+                
+            # Monkey Patch the xpdAcq _load_beamline_config since 1.0.0 does not have the pass for CI
+            try:
+              import platform
+              import subprocess
+              import yaml
+              import os
+              import xpdacq
+              from xpdacq.xpdacq_conf import _load_beamline_config
+
+              def _ci_load_beamline_config(beamline_config_fp, verif='', test=False):
+                  if (not test) and (not os.path.isfile(beamline_config_fp)):
+                      raise xpdacq.tools.xpdAcqException(
+                          'WARNING: can not find long term beamline '
+                          'configuration file. Please contact the '
+                          'beamline scientist ASAP'
+                      )
+                  os_type = platform.system()
+                  if os_type == 'Windows':
+                      editor = 'notepad'
+                  else:
+                      editor = os.environ.get('EDITOR', 'vim')
+                  beamline_config = dict()
+                  if not test:
+                      while verif.upper() not in ('Y', 'YES'):
+                          with open(beamline_config_fp, 'r') as f:
+                              beamline_config = yaml.unsafe_load(f)
+                          verif = input('\nIs this configuration correct? y/n: ')
+                          if verif.upper() in ('N', 'NO'):
+                              print('Edit, save, and close the configuration file.\n')
+                              subprocess.call([editor, beamline_config_fp])
+                      beamline_config['Verified by'] = input('Please input your initials: ')
+                      timestamp = datetime.datetime.now()
+                      beamline_config['Verification time'] = timestamp.strftime(
+                          '%Y-%m-%d %H:%M:%S'
+                      )
+                      with open(beamline_config_fp, 'w') as f:
+                          yaml.dump(beamline_config, f)
+                  return beamline_config
+
+              xpdacq.xpdacq_conf._load_beamline_config = _ci_load_beamline_config
+              print('Applied CI monkey patch for xpdacq.xpdacq_conf._load_beamline_config')
+            except Exception as exc:
+                print(f'Could not apply xpdacq.xpdacq_conf monkey patch: {exc}')
+
+            startup_files = sorted(glob.glob(os.path.join(os.getcwd(), 'startup/*.py')))
+            print(f'Found startup files: {os.getcwd()}/startup/*.py -> {startup_files}')
+            if os.path.isfile('.ci/drop-in.py'):
+              startup_files.append('.ci/drop-in.py')
+            if not startup_files:
+              raise SystemExit(f'Cannot find any startup files in {os.getcwd()}')
+
+            for f in startup_files:
+                if not os.path.isfile(f):
+                  raise FileNotFoundError(f'File {f} cannot be found.')
+                print(f'Executing {f} in CI')
+                try:
+                  if f.endswith('00-startup.py') and beamline_acronym == 'six':
+                    sys.argv = ['00-startup.py', 'arg1']
+
+                    simulated_inputs = 'SIX\n'
+                    sys.stdin = io.StringIO(simulated_inputs)
+
+                    ip.parent._exec_file(f)
+
+                    sys.stdin = sys.__stdin__
+                    sys.argv = [sys.argv[0]]
+                  elif f.endswith('01-prompt.py') and beamline_acronym == 'opls':
+                    RE.md['proposal_number'] = '123456'
+                    RE.md['main_proposer'] = 'test_user'
+                  
+                  # TODO: Is there a cleaner way to do this without having to modify the file? Perhaps using other types of overrides
+                  elif f.endswith('00-startup.py') and beamline_acronym == 'hex':
+                    with open(f, 'r') as file:
+                      content = file.read()
+                    
+                    content = content.replace('RUNNING_IN_NSLS2_CI = False', 'RUNNING_IN_NSLS2_CI = True')
+                    
+                    with open(f, 'w') as file:
+                      file.write(content)
+
+                    ip.parent._exec_file(f)
+                  else:
+                    ip.parent._exec_file(f)
+                except Exception as e:
+                  print(f'ERROR in {f}:')
+                  traceback.print_exc()
+                  raise
+            "
+
+            env | grep EPICS || true
+
+            set +e
+            ipython --profile=test -c "$command"
+            ipython_status=$?
+            set -e
+
+            if [ "${ipython_status}" -eq 139 ]; then
+              echo "Detected segfault (exit 139) in profile startup test, retrying once..."
+              sleep 2
+              set +e
+              ipython --profile=test -c "$command"
+              ipython_status=$?
+              set -e
+            fi
+
+            if [ "${ipython_status}" -ne 0 ]; then
+              echo "ipython profile startup test failed with exit code ${ipython_status}"
+              exit "${ipython_status}"
+            fi
+          else
+            # TODO: queueserver tests disabled for now
+            # nohup start-re-manager --profile-dir=. < /dev/null > /tmp/qs_manager.log 2>&1 &
+            # QS_MANAGER_PID=$!
+            # disown
+            # echo "QS_MANAGER_PID=${QS_MANAGER_PID}" >> $GITHUB_ENV
+
+            # for i in {1..60}; do
+            #   if grep -qF "ZeroMQ server is waiting on" /tmp/qs_manager.log; then
+            #     exit 0
+            #   fi
+            #   sleep 1
+            # done
+
+            # echo "start-re-manager did not become ready within 60 seconds"
+            # kill -SIGINT "${QS_MANAGER_PID}" 2>/dev/null || true
+            # exit 1
+            echo "Queueserver tests disabled"
+            exit 0
+          fi
+
+    # Show logs
+      - name: Show logs
+        if: always()
+        shell: bash -leo pipefail {0}
+        run: |
+          show_log() {
+              echo "=== $1 ==="
+              if [ -f "$2" ]; then
+                  cat "$2"
+              else
+                  echo "(not produced)"
+              fi
+          }
+          show_log "Blackhole IOC" /tmp/blackhole_ioc.log
+          show_log "PVA IOC" /tmp/pva_ioc.log
+          show_log "Tiled server" /tmp/tiled.log
+          # show_log "QS manager" /tmp/qs_manager.log  # TODO: re-enable when queueserver tests are active
+          show_log "Caddy reverse proxy" /tmp/caddy.log
+          show_log "Bluesky" "${LOGS_HOME}/.cache/bluesky/log/bluesky.log"
+          show_log "Bluesky IPython" "${LOGS_HOME}/.cache/bluesky/log/bluesky_ipython.log"
+          echo "=== Kafka ==="
+          docker logs kafka 2>&1 || echo "(not produced)"
+
+
+    # Stop Services
+      - name: Stop services
+        uses: ./.github/actions/stop-services

@@ -1,35 +1,35 @@
 name: 'testing-conda-environment'
 description: 'Test a conda environment of a specific python version against all beamlines'
-inputs:
-  conda_env_url:
-    description: 'URL to download the conda-packd environment, e.g: https://zenodo.org/records/14862443/files/2025-1.0-py311-tiled.tar.gz'
-    required: true
-  conda_env_md5:
-    description: 'MD5 checksum of the conda environment'
-    required: true
-  conda_pack_env_tarball:
-    description: 'Use a locally built conda environment tarball'
-    required: false
-    default: ''
-  org:
-    required: true
-    description: 'beamline github org'
-  repo:
-    required: true
-    description: 'beamline ipython profile github repository name'
-  branch:
-    required: true
-    description: 'beamline ipython profile git branch name'
-  beamline-acronym:
-    required: true
-    description: 'beamline tla'
-  beamline-endstation:
-    required: false
-    description: 'beamline endstation name'
-  beamline-redis-prefix:
-    required: false
-    description: 'beamline redis prefix'
-    default: ''
+# inputs:
+#   conda_env_url:
+#     description: 'URL to download the conda-packd environment, e.g: https://zenodo.org/records/14862443/files/2025-1.0-py311-tiled.tar.gz'
+#     required: true
+#   conda_env_md5:
+#     description: 'MD5 checksum of the conda environment'
+#     required: true
+#   conda_pack_env_tarball:
+#     description: 'Use a locally built conda environment tarball'
+#     required: false
+#     default: ''
+#   org:
+#     required: true
+#     description: 'beamline github org'
+#   repo:
+#     required: true
+#     description: 'beamline ipython profile github repository name'
+#   branch:
+#     required: true
+#     description: 'beamline ipython profile git branch name'
+#   beamline-acronym:
+#     required: true
+#     description: 'beamline tla'
+#   beamline-endstation:
+#     required: false
+#     description: 'beamline endstation name'
+#   beamline-redis-prefix:
+#     required: false
+#     description: 'beamline redis prefix'
+#     default: ''
 runs:
   using: 'composite'
 
@@ -39,36 +39,61 @@ runs:
       with:
         persist-credentials: false
 
-    - name: Env vars for locally cloned repo
-      if: inputs.branch != ''
+    - name: Endstation env vars
       shell: bash -leo pipefail {0}
       run: |
-        echo "::group::Setting up environment variables for locally cloned repo"
-        export CLONED_REPO="$HOME/${INPUTS_REPO}"
-        echo "CLONED_REPO=${CLONED_REPO}" >> $GITHUB_ENV
-        echo "::endgroup::"
-      env:
-        INPUTS_REPO: ${{ inputs.repo }}
+        # For single-endstation beamlines, beamline-acronym == endstation.
+        # For multi-endstation beamlines, beamline-acronym is set explicitly in the matrix.
+        BEAMLINE_ACRONYM="${{ matrix['beamline-acronym'] || matrix.endstation }}"
+        BEAMLINE_ACRONYM_UPPER="${BEAMLINE_ACRONYM^^}"
 
-    - name: Cloning remote repository
-      if: inputs.branch != ''
-      env:
-        REPO_URL: https://github.com/${{ inputs.org }}/${{ inputs.repo }}
-        INPUTS_BRANCH: ${{ inputs.branch }}
-      shell: bash -leo pipefail {0}
-      run: |
-        echo "::group::Cloning repository"
-        git clone -b ${INPUTS_BRANCH} "${REPO_URL}" ${CLONED_REPO}
-        echo "::endgroup::"
+        {
+          echo "BEAMLINE_ACRONYM=${BEAMLINE_ACRONYM}"
+          echo "ENDSTATION_ACRONYM=${{ matrix.endstation }}"
+          echo "REDIS_HOST=${{ matrix['redis-host'] }}"
+          echo "QS_HOST=${{ matrix['qs-host'] }}"
+          echo "TILED_BLUESKY_WRITING_API_KEY_${BEAMLINE_ACRONYM_UPPER}=secret"
+          echo "TILED_BLUESKY_WRITING_API_KEY=secret"
+          echo "MONGO_USER_${BEAMLINE_ACRONYM_UPPER}=test"
+          echo "MONGO_PASSWORD_${BEAMLINE_ACRONYM_UPPER}=test"
+          echo "BLUESKY_KAFKA_BOOTSTRAP_SERVERS=127.0.0.1:9092"
+          echo "BLUESKY_KAFKA_PASSWORD=test"
+        } >> $GITHUB_ENV
 
-    - name: Env vars for externally cloned repo
-      if: inputs.branch == ''
+    - name: Beamline directory setup
       shell: bash -leo pipefail {0}
       run: |
-        echo "::group::Setting up environment variables for externally cloned repo"
-        export CLONED_REPO="$GITHUB_WORKSPACE"
-        echo "CLONED_REPO=${CLONED_REPO}" >> $GITHUB_ENV
-        echo "::endgroup::"
+        sudo mkdir -v -p /nsls2/
+        sudo chown -v $USER: /nsls2/
+        mkdir -v -p /nsls2/data/${BEAMLINE_ACRONYM}/shared/config/RE-metadata
+        mkdir -v -p /nsls2/data/${BEAMLINE_ACRONYM}/shared/config/bluesky/logs
+        mkdir -v -p /nsls2/data/${BEAMLINE_ACRONYM}-new
+
+        export LOGS_HOME="$HOME"
+        if [ "${BEAMLINE_ACRONYM}" == "srx" ]; then
+            export LOGS_HOME="/home/xf05id1"
+            sudo mkdir -v -p /home/xf05id1/
+            sudo chown -v $USER: /home/xf05id1/
+        elif [ "${BEAMLINE_ACRONYM}" == "hxn" ]; then
+            sudo mkdir -v -p /home/xf03id/
+            sudo chown -v $USER: /home/xf03id/
+            mkdir -v -p /home/xf03id/logs/
+            touch /home/xf03id/benchmark.out
+        fi
+        echo "LOGS_HOME=${LOGS_HOME}" >> $GITHUB_ENV
+        mkdir -v -p ${LOGS_HOME}/.cache/bluesky/log/
+
+        mkdir -v -p $HOME/.ipython/
+        cp -rv "${CLONED_REPO}" $HOME/.ipython/profile_test
+        rm -fv ~/.ipython/profile_test/startup/*.py
+
+    - name: EPICS env vars
+      shell: bash -leo pipefail {0}
+      run: |
+        {
+            echo "EPICS_CA_AUTO_ADDR_LIST=NO"
+            echo "EPICS_CA_ADDR_LIST=127.0.0.1"
+        } >> $GITHUB_ENV
 
     - name: Check if LICENSE file exists
       shell: bash -leo pipefail {0}
@@ -91,405 +116,3 @@ runs:
             exit 1
         fi
         echo "::endgroup::"
-
-    - name: Set up Python
-      uses: actions/setup-python@v5
-      with:
-        python-version: 3.11
-
-    # - name: Beamline Specific Configurations
-    #   env:
-    #     ACTION_PATH: ${{ github.action_path }}
-    #   shell: bash -leo pipefail {0}
-    #   run: |
-    #     # TODO: implement the config via the Python script below later:
-    #     # python3 ${ACTION_PATH}/special_config.py -b "${{ inputs.beamline-acronym }}"
-
-    - name: Beamline-specific env vars
-      shell: bash -leo pipefail {0}
-      run: |
-        echo "::group::Setting up beamline-specific environment variables"
-        beamline_acronym="${INPUTS_BEAMLINE_ACRONYM}"
-        export BEAMLINE_ACRONYM="${beamline_acronym,,}"  # lowercase it
-        echo "BEAMLINE_ACRONYM=${BEAMLINE_ACRONYM}" >> $GITHUB_ENV
-
-        export BEAMLINE_ACRONYM_UPPER="${BEAMLINE_ACRONYM^^}"  # uppercase it
-        echo "BEAMLINE_ACRONYM_UPPER=${BEAMLINE_ACRONYM_UPPER}" >> $GITHUB_ENV
-
-        beamline_endstation="${INPUTS_BEAMLINE_ENDSTATION}"
-        export BEAMLINE_ENDSTATION="${beamline_endstation,,}" # lowercase it
-        echo "BEAMLINE_ENDSTATION=${BEAMLINE_ENDSTATION}" >> $GITHUB_ENV
-
-        export BEAMLINE_REDIS_PREFIX="${INPUTS_BEAMLINE_REDIS_PREFIX}"
-        echo "BEAMLINE_REDIS_PREFIX=${BEAMLINE_REDIS_PREFIX}" >> $GITHUB_ENV
-
-        echo "TILED_BLUESKY_WRITING_API_KEY_${BEAMLINE_ACRONYM_UPPER}=secret" >> $GITHUB_ENV
-
-        echo "MONGO_USER_${BEAMLINE_ACRONYM_UPPER}=test" >> $GITHUB_ENV
-        echo "MONGO_PASSWORD_${BEAMLINE_ACRONYM_UPPER}=test" >> $GITHUB_ENV
-
-        export BLUESKY_KAFKA_BOOTSTRAP_SERVERS="localhost:9092"
-        echo "BLUESKY_KAFKA_BOOTSTRAP_SERVERS=${BLUESKY_KAFKA_BOOTSTRAP_SERVERS}" >> $GITHUB_ENV
-        export BLUESKY_KAFKA_PASSWORD="test"
-        echo "BLUESKY_KAFKA_PASSWORD=${BLUESKY_KAFKA_PASSWORD}" >> $GITHUB_ENV
-
-        echo "::endgroup::"
-      env:
-        INPUTS_BEAMLINE_ACRONYM: ${{ inputs.beamline-acronym }}
-        INPUTS_BEAMLINE_ENDSTATION: ${{ inputs.beamline-endstation }}
-        INPUTS_BEAMLINE_REDIS_PREFIX: ${{ inputs.beamline-redis-prefix }}
-
-    - name: Beamline-specific configurations
-      shell: bash -leo pipefail {0}
-      run: |
-        echo "::group::Performing beamline-specific tasks"
-        sudo mkdir -v /nsls2/
-        sudo chown -v $USER: /nsls2/
-        mkdir -v -p /nsls2/data/${BEAMLINE_ACRONYM}/shared/config/RE-metadata
-        mkdir -v -p /nsls2/data/${BEAMLINE_ACRONYM}-new  # e.g., fxi-new
-
-        # TODO: fix SRX and HXN hardcoded paths.
-        export LOGS_HOME="$HOME"
-        if [ "${BEAMLINE_ACRONYM}" == "srx" ]; then
-            export LOGS_HOME="/home/xf05id1"
-            sudo mkdir -v -p /home/xf05id1/
-            sudo chown -v $USER: /home/xf05id1/
-        elif [ "${BEAMLINE_ACRONYM}" == "hxn" ]; then
-            sudo mkdir -v -p /home/xf03id/
-            sudo chown -v $USER: /home/xf03id/
-            mkdir -v -p /home/xf03id/logs/
-            touch /home/xf03id/benchmark.out
-        fi
-        echo "LOGS_HOME=${LOGS_HOME}" >> $GITHUB_ENV
-
-        mkdir -v -p ${LOGS_HOME}/.cache/bluesky/log/
-
-        mkdir -v -p $HOME/.ipython/
-        # Copy the entire "startup" directory to the test profile.
-        cp -rv "${CLONED_REPO}" $HOME/.ipython/profile_test
-        # Remove the top-level .py files as they will be loaded separately from
-        # profile_collection/startup dir. That allows proper capturing of the
-        # exit code in case IPython startup files have issues.
-        rm -fv ~/.ipython/profile_test/startup/*.py
-
-        echo "::endgroup::"
-
-    - name: EPICS env vars
-      shell: bash -leo pipefail {0}
-      run: |
-        echo "::group::Setting up EPICS environment variables"
-        export EPICS_CA_AUTO_ADDR_LIST="NO"
-        echo "EPICS_CA_AUTO_ADDR_LIST=${EPICS_CA_AUTO_ADDR_LIST}" >> $GITHUB_ENV
-
-        export EPICS_CA_ADDR_LIST="127.0.0.1"
-        echo "EPICS_CA_ADDR_LIST=${EPICS_CA_ADDR_LIST}" >> $GITHUB_ENV
-        echo "::endgroup::"
-
-    - name: Setting up Blackhole IOC
-      shell: bash -leo pipefail {0}
-      run: |
-        echo "::group::Setting up Blackhole IOC"
-        python3 -m pip install -U caproto
-        echo "\n" | python3 ${{ github.action_path }}/spoof_beamline.py &
-        trap 'kill -SIGINT %1; echo exiting...' EXIT
-        sudo ln -svf caproto-repeater "/bin/caRepeater"
-        echo "::endgroup::"
-
-    - uses: conda-incubator/setup-miniconda@505e6394dae86d6a5c7fbb6e3fb8938e3e863830 # v3
-      with:
-        activate-environment: test-env
-        auto-update-conda: true
-        miniforge-version: latest
-        python-version: "3.10"
-        conda-remove-defaults: true
-
-    - name: Parse Conda Environment Version
-      if: inputs.conda_pack_env_tarball == ''
-      id: parse-conda-env-version
-      shell: bash -leo pipefail {0}
-      run: |
-        echo "::group::Parsing conda version"
-        conda_env_version=$(echo "${INPUTS_CONDA_ENV_URL}" | sed -E 's|^.*/||; s|\.tar\.gz$||' )
-        echo "CONDA_ENV_VERSION=${conda_env_version}" >> $GITHUB_ENV
-        echo "::endgroup::"
-      env:
-        INPUTS_CONDA_ENV_URL: ${{ inputs.conda_env_url }}
-
-    - name: Cache Conda Environment
-      if: inputs.conda_pack_env_tarball == ''
-      id : cache-conda
-      uses: actions/cache@v4
-      with:
-        path: ~/download_conda_env
-        key: ${{ runner.os }}-${{ env.CONDA_ENV_VERSION }}-${{ inputs.conda_env_md5 }}
-
-    - name: Download and Cache Conda env from Zenodo
-      if: steps.cache-conda.outputs.cache-hit != 'true' && inputs.conda_pack_env_tarball == ''
-      shell: bash -leo pipefail {0}
-      run: |
-        echo "::group::Downloading and caching conda environment"
-        url="${INPUTS_CONDA_ENV_URL}?download=1"
-        mkdir -p ~/download_conda_env
-        time wget --progress=dot:giga ${url} -O ~/download_conda_env/env.tar.gz
-        status=$?
-        if [ $status -gt 0 ]; then
-            echo "Cannot download from ${url}. Exit code: ${status}"
-            exit $status
-        fi
-        echo "::endgroup::"
-      env:
-        INPUTS_CONDA_ENV_URL: ${{ inputs.conda_env_url }}
-
-    - name: Copy conda env from local path
-      if: inputs.conda_pack_env_tarball != ''
-      shell: bash -leo pipefail {0}
-      run: |
-        echo "::group::Copying conda environment from local path"
-        mkdir -p ~/download_conda_env
-        cp -v "${INPUTS_CONDA_PACK_ENV_TARBALL}" ~/download_conda_env/env.tar.gz
-        echo "::endgroup::"
-      env:
-        INPUTS_CONDA_PACK_ENV_TARBALL: ${{ inputs.conda_pack_env_tarball }}
-
-    - name: Create a conda env from downloaded file or cache
-      shell: bash -leo pipefail {0}
-      run: |
-        echo "${INPUTS_CONDA_ENV_MD5} $HOME/download_conda_env/env.tar.gz" > checksum.txt
-        md5sum --check checksum.txt
-        mkdir -p $HOME/env
-        echo "Unarchiving the tarball..."
-        tar -xf ~/download_conda_env/env.tar.gz -C $HOME/env
-        conda activate $HOME/env
-        conda-unpack
-        # TODO: release in conda-forge and add it to the standard conda env:
-        python3 -m pip install mpl-qtthread
-        echo "::endgroup::"
-      env:
-        INPUTS_CONDA_ENV_MD5: ${{ inputs.conda_env_md5 }}
-
-    - name: Run beamline specific steps
-      shell: bash -leo pipefail {0}
-      run: |
-        echo "::group::Running beamline specific steps"
-        # source the bl-specific.py file
-        if [ -f "${CLONED_REPO}/.ci/bl-specific.sh" ]; then
-            echo "Sourcing ${CLONED_REPO}/.ci/bl-specific.sh"
-            source "${CLONED_REPO}/.ci/bl-specific.sh"
-        fi
-        echo "::endgroup::"
-
-    - name: Configuring defaults (pyOlog, databroker, and kafka)
-      shell: bash -leo pipefail {0}
-      run: |
-        echo "::group::pyOlog configuration"
-        wget https://raw.githubusercontent.com/NSLS-II/profile-collection-ci/master/configs/pyOlog.conf -O $HOME/.pyOlog.conf
-        cat $HOME/.pyOlog.conf
-        echo "::endgroup::"
-
-        echo "::group::Classic databroker v0/v1 configuration"
-        databroker_conf_dir="$HOME/.config/databroker"
-        databroker_bl_conf="${BEAMLINE_ACRONYM}.yml"
-        mkdir -v -p ${databroker_conf_dir}
-        wget https://raw.githubusercontent.com/NSLS-II/profile-collection-ci/master/configs/databroker.yml -O ${databroker_conf_dir}/_legacy_config.yml
-        cp -v ${databroker_conf_dir}/_legacy_config.yml ${databroker_conf_dir}/${databroker_bl_conf}
-        cat ${databroker_conf_dir}/_legacy_config.yml
-        cat ${databroker_conf_dir}/${databroker_bl_conf}
-        echo "::endgroup::"
-
-        echo "::group::Tiled profile configuration"
-        tiled_profiles_dir="$HOME/.config/tiled/profiles/"
-        mkdir -v -p "${tiled_profiles_dir}"
-        cat << EOF > ${tiled_profiles_dir}/profiles.yml
-        ${BEAMLINE_ENDSTATION:-${BEAMLINE_ACRONYM:-local}}:
-          direct:
-            authentication:
-              allow_anonymous_access: true
-            trees:
-            - tree: databroker.mongo_normalized:Tree.from_uri
-              path: /
-              args:
-                uri: mongodb://localhost:27017/metadatastore-local
-                asset_registry_uri: mongodb://localhost:27017/asset-registry-local
-        EOF
-        cat ${tiled_profiles_dir}/profiles.yml
-        echo "::endgroup::"
-
-        echo "::group::Kafka configuration"
-        cat << EOF > kafka.yml
-        ---
-          abort_run_on_kafka_exception: false
-          bootstrap_servers:
-            - localhost:9092
-          runengine_producer_config:
-            security.protocol: PLAINTEXT
-        EOF
-
-        echo "SUDO: Placing kafka config in /etc/bluesky"
-        sudo mkdir -v -p /etc/bluesky/
-        sudo mv -v kafka.yml /etc/bluesky/kafka.yml
-        cat /etc/bluesky/kafka.yml
-        echo "::endgroup::"
-
-    - name: Configuring Redis
-      uses: supercharge/redis-github-action@ea9b21c6ecece47bd99595c532e481390ea0f044 # 1.8.0
-      with:
-        redis-version: latest
-
-    - name: Configuring Mongo
-      uses: supercharge/mongodb-github-action@5a87bd81f88e2a8b195f8b7b656f5cda1350815a # 1.11.0
-      with:
-        mongodb-version: '4.4'
-
-    - name: Add info DNS entries for local Redis and Mongo
-      shell: bash -leo pipefail {0}
-      run: |
-        echo "::group::Setting up DNS entries"
-        # Per https://stackoverflow.com/a/66982842:
-        beamline_redis_address="info.${BEAMLINE_ACRONYM}.nsls2.bnl.gov"
-        export BEAMLINE_REDIS_ADDRESS="${beamline_redis_address}"
-        echo "BEAMLINE_REDIS_ADDRESS=${BEAMLINE_REDIS_ADDRESS}" >> $GITHUB_ENV
-        sudo echo "127.0.0.1 ${BEAMLINE_REDIS_ADDRESS}" | sudo tee -a /etc/hosts
-        for i in {1..3}; do
-            sudo echo "127.0.0.1 mongo${i}.nsls2.bnl.gov" | sudo tee -a /etc/hosts
-        done
-        cat /etc/hosts
-        echo "::endgroup::"
-
-        echo "::group::Testing connections"
-        echo "Pinging ${BEAMLINE_REDIS_ADDRESS}..."
-        ping -c 5 ${BEAMLINE_REDIS_ADDRESS}
-        echo "Telnetting to ${BEAMLINE_REDIS_ADDRESS}:6379..."
-        echo "" | telnet ${BEAMLINE_REDIS_ADDRESS} 6379
-        for i in {1..3}; do
-            echo "Pinging mongo${i}.nsls2.bnl.gov..."
-            ping -c 5 mongo${i}.nsls2.bnl.gov
-            echo "Telnetting to mongo${i}.nsls2.bnl.gov:27017..."
-            echo "" | telnet mongo${i}.nsls2.bnl.gov 27017
-        done
-        echo "::endgroup::"
-
-    - name: Insert reasonable values for cycle and data session to redis
-      shell: bash -leo pipefail {0}
-      run: |
-        echo "::group::Installing redis-cli and setting cycle and data session"
-        sudo apt install redis-tools
-        redis-cli -h ${BEAMLINE_REDIS_ADDRESS} set "${BEAMLINE_REDIS_PREFIX}cycle" "\"2025-2\""
-        redis-cli -h ${BEAMLINE_REDIS_ADDRESS} set "${BEAMLINE_REDIS_PREFIX}data_session" "\"pass-000000\""
-        redis-cli -h ${BEAMLINE_REDIS_ADDRESS} --scan
-        echo "::endgroup::"
-
-    - name: Create nsls2 tiled profile
-      shell: bash -leo pipefail {0}
-      run: |
-        echo "::group::Creating NSLS2 tiled profile"
-        conda activate $HOME/env
-        tiled profile create --name nsls2 http://127.0.0.1:8000
-        echo "::endgroup::"
-
-    - name: Start Tiled Server
-      shell: bash -leo pipefail {0}
-      run: |
-        echo "::group::Starting Tiled server"
-        conda activate $HOME/env
-        export TILED_API_KEY=secret
-        echo "TILED_API_KEY=${TILED_API_KEY}" >> $GITHUB_ENV
-        nohup tiled serve catalog --temp --api-key=$TILED_API_KEY > /tmp/tiled.log 2>&1 &
-        sleep 10
-        echo "::endgroup::"
-
-    - name: Create TLA tiled profile
-      shell: bash -leo pipefail {0}
-      run: |
-        echo "::group::Creating TLA tiled profile"
-        conda activate $HOME/env
-        command="
-        import os
-        from tiled.client import from_profile
-        tla = os.getenv('BEAMLINE_ACRONYM', 'xyz').lower()
-        TLA = tla.upper()
-        client = from_profile('nsls2', api_key=os.getenv(f'TILED_BLUESKY_WRITING_API_KEY_{TLA}', 'secret'))
-        client.create_container(tla).create_container('raw', specs=['CatalogOfBluesklyRuns'])
-        print(client[tla]['raw'])"
-        python3 -c "$command"
-        echo "::endgroup::"
-
-    - name: Show logs so far
-      if: always()
-      shell: bash -leo pipefail {0}
-      run: |
-        echo "::group::Tiled server logs so far"
-        cat /tmp/tiled.log
-        echo "::endgroup::"
-
-    - name: Apply auto settings
-      shell: bash -leo pipefail {0}
-      run: |
-        echo "::group::Applying auto settings"
-        if [ -f "${CLONED_REPO}/.ci/auto_settings.sav" ]; then
-          while IFS= read -r line; do
-            if [ -n "$line" ]; then
-                echo "Applying $line"
-                caproto-put $line
-            fi
-          done < "${CLONED_REPO}/.ci/auto_settings.sav"
-        else
-          echo "No auto settings script found in ${CLONED_REPO}/.ci/auto_settings.sav"
-        fi
-        echo "::endgroup::"
-
-    - name: Activate IPython profile and run tests
-      shell: bash -leo pipefail {0}
-      run: |
-        echo "::group::Activating IPython profile and running tests..."
-        conda activate $HOME/env
-
-        cd "${CLONED_REPO}"
-
-        # Start Xvfb
-        /sbin/start-stop-daemon --start --quiet --pidfile /tmp/custom_xvfb_99.pid --make-pidfile --background --exec /usr/bin/Xvfb -- :99 -ac -screen 0 1280x1024x16
-        export DISPLAY=:99
-
-        command="
-        import os
-        import glob
-        ip = get_ipython()
-        startup_files = sorted(glob.glob(os.path.join(os.getcwd(), 'startup/*.py')))
-        if os.path.isfile('.ci/drop-in.py'):
-            startup_files.append('.ci/drop-in.py')
-        if not startup_files:
-            raise SystemExit(f'Cannot find any startup files in {os.getcwd()}')
-        for f in startup_files:
-            if not os.path.isfile(f):
-                raise FileNotFoundError(f'File {f} cannot be found.')
-            print(f'Executing {f} in CI')
-            ip.parent._exec_file(f)"
-        env | grep EPICS
-        ipython --profile=test -c "$command"
-        echo "::endgroup::"
-
-    - name: Check bluesky logs
-      if: always()
-      shell: bash -leo pipefail {0}
-      run: |
-        echo "::group::Bluesky logs"
-        echo -e "\n\n=============================================================="
-        cat ${LOGS_HOME}/.cache/bluesky/log/bluesky.log
-        echo -e "=============================================================="
-        echo "::endgroup::"
-
-        echo "::group::Bluesky IPython logs"
-        echo -e "\n\n=============================================================="
-        cat ${LOGS_HOME}/.cache/bluesky/log/bluesky_ipython.log
-        echo -e "\n\n=============================================================="
-        echo "::endgroup::"
-
-    - name: Job completed
-      shell: bash -leo pipefail {0}
-      run: |
-        echo "::group::Test results summary"
-        echo -e "### Test results\n\nTest for ${INPUTS_BEAMLINE_ACRONYM}:${INPUTS_REPO}@${INPUTS_BRANCH} finished." >> $GITHUB_STEP_SUMMARY
-        echo "::endgroup::"
-      env:
-        INPUTS_BEAMLINE_ACRONYM: ${{ inputs.beamline-acronym }}
-        INPUTS_REPO: ${{ inputs.repo }}
-        INPUTS_BRANCH: ${{ inputs.branch }}

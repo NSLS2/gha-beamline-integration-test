@@ -1,0 +1,145 @@
+name: Prepare environment
+description: Set beamline-specific environment variables and repository info
+
+inputs:
+  repo:
+    required: true
+  branch:
+    required: true
+  redis-host:
+    required: true
+  endstation:
+    required: true
+
+runs:
+  using: composite
+  steps:
+    - name: Export environment variables
+      shell: bash
+      run: |
+        REPO_INPUT="${{ inputs.repo }}"
+        REPO_NAME="${REPO_INPUT##*/}"
+        echo "CLONED_REPO=/home/runner/${REPO_NAME}" >> "$GITHUB_ENV"
+        echo "BEAMLINE_REPO=${{ inputs.repo }}" >> "$GITHUB_ENV"
+        echo "BEAMLINE_BRANCH=${{ inputs.branch }}" >> "$GITHUB_ENV"
+        echo "REDIS_HOST=${{ inputs.redis-host }}" >> "$GITHUB_ENV"
+        echo "ENDSTATION=${{ inputs.endstation }}" >> "$GITHUB_ENV"
+        
+    - name: Endstation env vars
+      shell: bash -leo pipefail {0}
+      run: |
+        # For single-endstation beamlines, beamline-acronym == endstation.
+        # For multi-endstation beamlines, beamline-acronym is set explicitly in the matrix.
+        BEAMLINE_ACRONYM="${{ matrix['beamline-acronym'] || matrix.endstation }}"
+        BEAMLINE_ACRONYM_UPPER="${BEAMLINE_ACRONYM^^}"
+
+        {
+          echo "BEAMLINE_ACRONYM=${BEAMLINE_ACRONYM}"
+          echo "ENDSTATION_ACRONYM=${{ matrix.endstation }}"
+          echo "PROFILE_COLLECTION_ROOT=${CLONED_REPO}" >> $GITHUB_ENV
+          echo "REDIS_HOST=${{ matrix['redis-host'] }}"
+          echo "QS_HOST=${{ matrix['qs-host'] }}"
+          echo "TILED_BLUESKY_WRITING_API_KEY_${BEAMLINE_ACRONYM_UPPER}=secret"
+          echo "TILED_BLUESKY_WRITING_API_KEY=secret"
+          echo "MONGO_USER_${BEAMLINE_ACRONYM_UPPER}=test"
+          echo "MONGO_PASSWORD_${BEAMLINE_ACRONYM_UPPER}=test"
+          echo "BLUESKY_KAFKA_BOOTSTRAP_SERVERS=127.0.0.1:9092"
+          echo "BLUESKY_KAFKA_PASSWORD=test"
+        } >> $GITHUB_ENV
+
+    - name: Beamline-specific configurations
+      shell: bash -leo pipefail {0}
+      run: |
+        echo "::group::Performing beamline-specific tasks"
+
+        sudo mkdir -v -p /nsls2/data/${BEAMLINE_ACRONYM}/shared/config/RE-metadata
+        sudo mkdir -v -p /nsls2/data/${BEAMLINE_ACRONYM}/shared/config/bluesky/logs
+        sudo mkdir -v -p /nsls2/data/${BEAMLINE_ACRONYM}-new
+        sudo chown -v -R $USER: /nsls2
+
+        mkdir -p "/nsls2/data/${BEAMLINE_ACRONYM}/shared/config/bluesky"
+        ln -sfn "${CLONED_REPO}" "/nsls2/data/${BEAMLINE_ACRONYM}/shared/config/bluesky/profile_collection"
+
+        # For IXS beamline
+        INI_FILE="${CLONED_REPO}/startup/utils/conf/ini.conf"
+        if [ -f "${INI_FILE}" ]; then
+          ls -l "/nsls2/data/${BEAMLINE_ACRONYM}/shared/config/bluesky/profile_collection/startup/utils/conf/ini.conf"
+        else
+          echo "Skipping profile_collection symlink setup; missing ${INI_FILE}"
+        fi
+
+        # For IXS beamline
+        if [ ${{ matrix.endstation }} == "ixs" ]; then
+          mkdir -v -p /nsls2/data/${BEAMLINE_ACRONYM}/legacy
+
+        elif [ ${{ matrix.endstation }} == "lix" ]; then
+          # the 2026-1 directory is hard coded into the profile and will have to be updated when the "current cycle" changes. 
+          mkdir -v -p /nsls2/data/lix/legacy/2026-1
+        fi
+
+        # CSM
+        if [ ${{ matrix.endstation }} == "csm" ]; then
+          mkdir -v -p /nsls2/data/${BEAMLINE_ACRONYM}/proposals
+          mkdir -v -p "/nsls2/data3/${BEAMLINE_ACRONYM}/shared/config/bluesky/profile_collection/startup"
+        fi
+
+        # XPD
+        if [ ${{ matrix.endstation }} == "xpd" ]; then
+          mkdir -v -p /home/runner/acqsim
+        fi
+
+        # TODO: fix SRX and HXN hardcoded paths.
+        export LOGS_HOME="$HOME"
+        if [ "${BEAMLINE_ACRONYM}" == "srx" ]; then
+            export LOGS_HOME="/home/xf05id1"
+            sudo mkdir -v -p /home/xf05id1/
+            sudo chown -v $USER: /home/xf05id1/
+        elif [ "${BEAMLINE_ACRONYM}" == "hxn" ]; then
+            sudo mkdir -v -p /home/xf03id/
+            sudo chown -v $USER: /home/xf03id/
+            mkdir -v -p /home/xf03id/logs/
+            touch /home/xf03id/benchmark.out
+        fi
+        echo "LOGS_HOME=${LOGS_HOME}" >> $GITHUB_ENV
+
+        mkdir -v -p ${LOGS_HOME}/.cache/bluesky/log/
+
+        mkdir -v -p $HOME/.ipython/
+        # Copy the entire "startup" directory to the test profile.
+
+        echo "Copying ${CLONED_REPO} to $HOME/.ipython/profile_test"
+        cp -rv "${CLONED_REPO}" $HOME/.ipython/profile_test
+
+        # For OPLS beamline, they have a specific .csv configuration files that needs to be acceessed in a certain directory
+        if [ "${BEAMLINE_ACRONYM}" == "opls" ]; then
+          mkdir -v -p /nsls2/data/smi/opls/shared/config/operations/bsui_parameters/attenuators/
+          cp -v /home/runner/opls-profile-collection/OPLS_attenuator_thickness.csv /nsls2/data/smi/opls/shared/config/operations/bsui_parameters/attenuators/opls_attenuator_thickness.csv
+          
+          echo "Creating opls_attenuators_database.csv in /nsls2/data/smi/opls/shared/config/operations/bsui_parameters/attenuators/"
+
+          printf '%s\n' \
+            'date,attenuators' \
+            '2025-01-27 14:50:22.581335,"{""Nb_9.7keV"": {""att0"": 1, ""att1"": 9.99, ""att2"": 10.9, ""att3"": 9.98, ""att4"": 10.62, ""att5"": 10.77, ""att6"": 10.39, ""att7"": 11.18}, ""Si_14.4keV"": {""att0"": 1, ""att1"": 14.0, ""att2"": 14.03, ""att3"": 14.0, ""att4"": 14.06, ""att5"": 14, ""att6"": 14.5}, ""Cu_16.1keV"": {""att0"": 1, ""att1"": 6.6, ""att2"": 6.7, ""att3"": 6.85, ""att4"": 6.6, ""att5"": 6.4, ""att6"": 6.75}, ""Al_23keV"": {""att0"": 1, ""att1"": 11.1, ""att2"": 11.2, ""att3"": 10.0, ""att4"": 11.5, ""att5"": 10.46}}"' \
+            '2025-01-27 14:50:22.581336,"{""Nb_9.7keV"": {""att0"": 1, ""att1"": 9.99, ""att2"": 10.9, ""att3"": 9.98, ""att4"": 10.62, ""att5"": 10.77, ""att6"": 10.39, ""att7"": 11.18}, ""Si_14.4keV"": {""att0"": 1, ""att1"": 14.0, ""att2"": 14.03, ""att3"": 14.0, ""att4"": 14.06, ""att5"": 14, ""att6"": 14.5}, ""Cu_16.1keV"": {""att0"": 1, ""att1"": 6.6, ""att2"": 6.7, ""att3"": 6.85, ""att4"": 6.6, ""att5"": 6.4, ""att6"": 6.75}, ""Al_23keV"": {""att0"": 1, ""att1"": 11.1, ""att2"": 11.2, ""att3"": 10.0, ""att4"": 11.5, ""att5"": 10.46}}"' \
+            > /nsls2/data/smi/opls/shared/config/operations/bsui_parameters/attenuators/opls_attenuators_database.csv
+
+        fi
+
+
+        # Remove the top-level .py files as they will be loaded separately from
+        # profile_collection/startup dir. That allows proper capturing of the
+        # exit code in case IPython startup files have issues.
+        rm -fv ~/.ipython/profile_test/startup/*.py
+
+        echo "::endgroup::"
+
+    - name: EPICS env vars
+      shell: bash -leo pipefail {0}
+      run: |
+        {
+            echo "EPICS_CA_AUTO_ADDR_LIST=NO"
+            echo "EPICS_CA_ADDR_LIST=127.0.0.1"
+            echo "EPICS_PVA_AUTO_ADDR_LIST=NO"
+            echo "EPICS_PVA_ADDR_LIST=127.0.0.1"
+            echo "RUNNING_IN_NSLS2_CI=True"
+        } >> $GITHUB_ENV
